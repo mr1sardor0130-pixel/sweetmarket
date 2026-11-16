@@ -33,7 +33,7 @@ interface LocalizedString {
 interface ServerBakery {
   id: string;
   name: string;
-  sellerType: 'confectioner' | 'home_baker' | 'bakery';
+  sellerType: 'confectioner' | 'home_baker' | 'bakery' | 'restaurant' | 'cafe' | 'grocery' | 'home_kitchen' | 'other';
   districtId: string;
   district: LocalizedString;
   address: LocalizedString;
@@ -2312,10 +2312,8 @@ async function startServer() {
   app.post('/api/admin/bakeries', (req: Request, res: Response) => {
     const body = req.body ?? {};
     const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const sellerType =
-      body.sellerType === 'confectioner' || body.sellerType === 'home_baker' || body.sellerType === 'bakery'
-        ? body.sellerType
-        : 'bakery';
+    const sellerTypes = ['confectioner', 'home_baker', 'bakery', 'restaurant', 'cafe', 'grocery', 'home_kitchen', 'other'] as const;
+    const sellerType = sellerTypes.includes(body.sellerType) ? body.sellerType : 'bakery';
     const districtId = typeof body.districtId === 'string' ? body.districtId.trim() : 'registon';
     const addressText = typeof body.address === 'string' ? body.address.trim() : 'Samarqand shahri';
     const workingHours = typeof body.workingHours === 'string' && body.workingHours.trim() ? body.workingHours.trim() : '09:00 – 21:00';

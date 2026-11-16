@@ -176,7 +176,17 @@ export interface TranslationDictionary {
     productsCountUnit: string;
     openNow: string;
     closedNow: string;
-    sellerTypeLabels: Record<'confectioner' | 'home_baker' | 'bakery', string>;
+    sellerTypeLabels: Record<
+      | 'confectioner'
+      | 'home_baker'
+      | 'bakery'
+      | 'restaurant'
+      | 'cafe'
+      | 'grocery'
+      | 'home_kitchen'
+      | 'other',
+      string
+    >;
     sellerTypesHeading: string;
     sellerTypes: {
       role: string;

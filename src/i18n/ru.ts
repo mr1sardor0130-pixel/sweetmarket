@@ -294,6 +294,11 @@ export const ru: TranslationDictionary = {
       confectioner: 'Независимый кондитер',
       home_baker: 'Домашний пекарь',
       bakery: 'Кондитерская компания',
+      restaurant: 'Ресторан',
+      cafe: 'Кафе',
+      grocery: 'Продуктовый магазин',
+      home_kitchen: 'Домашняя кухня',
+      other: 'Другой магазин',
     },
     sellerTypesHeading: 'Форматы продавцов на платформе',
     sellerTypes: [

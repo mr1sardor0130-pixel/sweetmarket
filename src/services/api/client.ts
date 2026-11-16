@@ -648,7 +648,15 @@ export async function deleteAdminSellerAccount(id: string): Promise<{ deletedId:
 
 export async function createAdminBakery(payload: {
   name: string;
-  sellerType: 'confectioner' | 'home_baker' | 'bakery';
+  sellerType:
+    | 'confectioner'
+    | 'home_baker'
+    | 'bakery'
+    | 'restaurant'
+    | 'cafe'
+    | 'grocery'
+    | 'home_kitchen'
+    | 'other';
   districtId: string;
   address: string;
   workingHours: string;

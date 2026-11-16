@@ -90,10 +90,20 @@ export interface ProductVariantItem {
   priceUzs: number;
 }
 
+export type MarketplaceBusinessType =
+  | 'confectioner'
+  | 'home_baker'
+  | 'bakery'
+  | 'restaurant'
+  | 'cafe'
+  | 'grocery'
+  | 'home_kitchen'
+  | 'other';
+
 export interface BakerySummary {
   id: string;
   name: string;
-  sellerType: 'confectioner' | 'home_baker' | 'bakery';
+  sellerType: MarketplaceBusinessType;
   districtId: string;
   district: LocalizedText;
   address: LocalizedText;

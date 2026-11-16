@@ -294,6 +294,11 @@ export const uz: TranslationDictionary = {
       confectioner: 'Mustaqil qandolatchi',
       home_baker: 'Uy novvoyi',
       bakery: 'Qandolat kompaniyasi',
+      restaurant: 'Restoran',
+      cafe: 'Kafe',
+      grocery: 'Oziq-ovqat do‘koni',
+      home_kitchen: 'Uy oshxonasi',
+      other: 'Boshqa do‘kon',
     },
     sellerTypesHeading: 'Platformadagi ustalar toifalari',
     sellerTypes: [

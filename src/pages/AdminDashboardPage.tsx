@@ -118,7 +118,7 @@ export function AdminDashboardPage({
   // Bakeries state
   const [showCreateBakery, setShowCreateBakery] = useState(false);
   const [bakeryName, setBakeryName] = useState('');
-  const [bakeryType, setBakeryType] = useState<'confectioner' | 'home_baker' | 'bakery'>('bakery');
+  const [bakeryType, setBakeryType] = useState<'confectioner' | 'home_baker' | 'bakery' | 'restaurant' | 'cafe' | 'grocery' | 'home_kitchen' | 'other'>('bakery');
   const [bakeryDistrict, setBakeryDistrict] = useState('registon');
   const [bakeryAddress, setBakeryAddress] = useState('');
   const [bakeryHours, setBakeryHours] = useState('09:00 – 21:00');
@@ -844,7 +844,7 @@ export function AdminDashboardPage({
                   <div className="space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h2 className="font-display text-xl font-semibold text-[var(--sm-text-primary)]">
-                        {locale === 'uz' ? 'Qandolatxonalar va ustalar' : 'Кондитерские и мастера'}
+                        {locale === 'uz' ? 'Hamkorlar va do‘konlar' : 'Партнёры и магазины'}
                       </h2>
                       <Button
                         variant="primary"
@@ -852,7 +852,7 @@ export function AdminDashboardPage({
                         leftIcon={<Plus className="w-4 h-4" />}
                         onClick={() => setShowCreateBakery((p) => !p)}
                       >
-                        {locale === 'uz' ? 'Yangi qandolatxona' : 'Новая кондитерская'}
+                        {locale === 'uz' ? 'Yangi do‘kon' : 'Новый магазин'}
                       </Button>
                     </div>
 
@@ -870,11 +870,16 @@ export function AdminDashboardPage({
                             <SelectInput
                               label={locale === 'uz' ? 'Turi' : 'Тип'}
                               value={bakeryType}
-                              onChange={(e) => setBakeryType(e.target.value as 'confectioner' | 'home_baker' | 'bakery')}
+                              onChange={(e) => setBakeryType(e.target.value as typeof bakeryType)}
                               options={[
-                                { value: 'bakery', label: 'Qandolatxona' },
-                                { value: 'confectioner', label: 'Usta qandolatchi' },
-                                { value: 'home_baker', label: 'Uy bekasi' },
+                                { value: 'bakery', label: locale === 'uz' ? 'Qandolatxona' : 'Кондитерская' },
+                                { value: 'confectioner', label: locale === 'uz' ? 'Usta qandolatchi' : 'Кондитер-мастер' },
+                                { value: 'home_baker', label: locale === 'uz' ? 'Uy novvoyxonasi' : 'Домашняя пекарня' },
+                                { value: 'restaurant', label: locale === 'uz' ? 'Restoran' : 'Ресторан' },
+                                { value: 'cafe', label: locale === 'uz' ? 'Kafe' : 'Кафе' },
+                                { value: 'grocery', label: locale === 'uz' ? 'Oziq-ovqat do‘koni' : 'Продуктовый магазин' },
+                                { value: 'home_kitchen', label: locale === 'uz' ? 'Uy oshxonasi' : 'Домашняя кухня' },
+                                { value: 'other', label: locale === 'uz' ? 'Boshqa do‘kon' : 'Другой магазин' },
                               ]}
                             />
                             <SelectInput

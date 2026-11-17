@@ -9,10 +9,12 @@ import { MobileNavDrawer } from '../components/navigation/MobileNavDrawer';
 import { TopHeader } from '../components/navigation/TopHeader';
 import { useCart } from '../hooks/useCart';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import { authClient } from '../services/auth-client';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useFavorites } from '../hooks/useFavorites';
 import { useTranslation } from '../hooks/useTranslation';
 import { AdminDashboardPage } from '../pages/AdminDashboardPage';
+import { AuthPage } from '../pages/AuthPage';
 import { ArtisansBlueprintPage } from '../pages/ArtisansBlueprintPage';
 import { CatalogBlueprintPage } from '../pages/CatalogBlueprintPage';
 import { FavoritesPage } from '../pages/FavoritesPage';
@@ -49,6 +51,7 @@ function resolveInitialRouteFromLocation(): AppRouteId {
     if (target.startsWith('/artisans')) return 'artisans';
     if (target.startsWith('/favorites')) return 'favorites';
     if (target.startsWith('/profile')) return 'profile';
+    if (target.startsWith('/sign-in')) return 'sign-in';
     if (target.startsWith('/system')) return 'system';
   } catch {
     // ignore
@@ -70,6 +73,8 @@ function getPathForRoute(route: AppRouteId): string {
       return '/favorites';
     case 'profile':
       return '/profile';
+    case 'sign-in':
+      return '/sign-in';
     case 'system':
       return '/system';
     case 'marketplace':
@@ -80,6 +85,7 @@ function getPathForRoute(route: AppRouteId): string {
 
 export function AppShell() {
   const { locale, t } = useTranslation();
+  const { data: authSession } = authClient.useSession();
   const [activeRoute, setActiveRoute] = useState<AppRouteId>(() => resolveInitialRouteFromLocation());
   const [platformConfig, setPlatformConfig] = useState<PlatformSettingsRecord | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -123,7 +129,7 @@ export function AppShell() {
     setDefaultSavedAddress,
     removeSavedAddress,
     resetProfile,
-  } = useCustomerProfile();
+  } = useCustomerProfile(authSession?.user?.id);
 
   const {
     favoriteIds,
@@ -175,6 +181,7 @@ export function AppShell() {
   // Guard against accidental page refresh/close and accidental browser Back navigation
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if ((window as Window & { __sweetMarketAuthNavigation?: boolean }).__sweetMarketAuthNavigation) return;
       e.preventDefault();
       e.returnValue = '';
     };
@@ -236,6 +243,7 @@ export function AppShell() {
     artisans: `${t.brand.name} — ${t.nav.artisans}`,
     favorites: `${t.brand.name} — ${t.nav.favorites}`,
     profile: `${t.brand.name} — ${t.nav.profile}`,
+    'sign-in': `${t.brand.name} — Sign in`,
     seller: `${t.brand.name} — ${t.nav.seller}`,
     admin: `${t.brand.name} — Admin Panel`,
     system: `${t.brand.name} — ${t.nav.system}`,
@@ -338,6 +346,10 @@ export function AppShell() {
         onPlatformDataChanged={refreshCatalogAndCompanies}
       />
     );
+  }
+
+  if (activeRoute === 'sign-in') {
+    return <AuthPage onClose={() => handleNavigate('marketplace')} />;
   }
 
   if (activeRoute === 'seller') {
@@ -456,9 +468,9 @@ export function AppShell() {
                     onExploreBakeries={() => handleNavigate('artisans')}
                   />
                 )}
-                {activeRoute === 'profile' && (
+                {activeRoute === 'profile' && (authSession?.user ? (
                   <ProfilePage
-                    profile={profile}
+                    profile={{ ...profile, fullName: authSession.user.name || profile.fullName }}
                     bakeries={bakeries}
                     allProducts={allProducts}
                     onUpdateProfile={updateProfile}
@@ -472,8 +484,9 @@ export function AppShell() {
                     favoritesCount={favoriteIds.length}
                     followedBakeriesCount={followedBakeryIds.length}
                     onOpenSystem={() => handleNavigate('system')}
+                    onSignOut={() => { void authClient.signOut().then(() => window.location.assign('/')); }}
                   />
-                )}
+                ) : <AuthPage onClose={() => handleNavigate('marketplace')} />)}
                 {activeRoute === 'system' && <SystemArchitecturePage />}
               </div>
             )}

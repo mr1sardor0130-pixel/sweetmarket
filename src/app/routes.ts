@@ -4,6 +4,7 @@ export type AppRouteId =
   | 'artisans'
   | 'favorites'
   | 'profile'
+  | 'sign-in'
   | 'seller'
   | 'admin'
   | 'system';

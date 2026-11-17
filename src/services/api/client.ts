@@ -17,35 +17,8 @@ import {
   ShowcaseProduct,
 } from '../../types';
 
-const SELLER_TOKEN_KEY = 'sweetmarket_seller_token';
-
-export function getStoredSellerToken(): string | null {
-  try {
-    return window.localStorage.getItem(SELLER_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setStoredSellerToken(token: string | null) {
-  try {
-    if (token) {
-      window.localStorage.setItem(SELLER_TOKEN_KEY, token);
-    } else {
-      window.localStorage.removeItem(SELLER_TOKEN_KEY);
-    }
-  } catch {
-    // ignore
-  }
-}
-
 function getSellerAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const token = getStoredSellerToken();
-  return {
-    Accept: 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra,
-  };
+  return { Accept: 'application/json', ...extra };
 }
 
 export interface ServerHealthResponse {
@@ -294,7 +267,7 @@ export async function cancelCustomerOrder(batchId: string): Promise<ConfirmedOrd
 export async function loginSellerAccount(payload: {
   login: string;
   password: string;
-}): Promise<{ token: string; account: SellerAccountRecord }> {
+}): Promise<{ account: SellerAccountRecord }> {
   const response = await fetch('/api/seller/login', {
     method: 'POST',
     headers: {
@@ -303,35 +276,45 @@ export async function loginSellerAccount(payload: {
     },
     body: JSON.stringify(payload),
   });
-  const data = (await response.json()) as { token: string; account: SellerAccountRecord; error?: string };
+  const data = (await response.json()) as { account: SellerAccountRecord; error?: string };
   if (!response.ok) {
     throw new Error(data.error || `Seller login failed with status ${response.status}`);
   }
-  setStoredSellerToken(data.token);
-  return { token: data.token, account: data.account };
+  return { account: data.account };
+}
+
+export async function linkSellerAccount(payload: {
+  login: string;
+  password: string;
+}): Promise<{ account: SellerAccountRecord }> {
+  const response = await fetch('/api/seller/link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload),
+  });
+  const data = (await response.json()) as { account?: SellerAccountRecord; error?: string };
+  if (!response.ok || !data.account) {
+    throw new Error(data.error || `Seller verification failed with status ${response.status}`);
+  }
+  return { account: data.account };
 }
 
 export async function logoutSellerAccount(): Promise<void> {
-  try {
-    await fetch('/api/seller/logout', {
-      method: 'POST',
-      headers: getSellerAuthHeaders(),
-    });
-  } finally {
-    setStoredSellerToken(null);
-  }
+  await fetch('/api/seller/logout', {
+    method: 'POST',
+    headers: getSellerAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+    credentials: 'same-origin',
+  });
 }
 
 export async function fetchCurrentSellerAccount(): Promise<SellerAccountRecord | null> {
-  const token = getStoredSellerToken();
-  if (!token) return null;
   const response = await fetch('/api/seller/me', {
     headers: getSellerAuthHeaders(),
+    credentials: 'same-origin',
   });
-  if (!response.ok) {
-    setStoredSellerToken(null);
-    return null;
-  }
+  if (!response.ok) return null;
   const data = (await response.json()) as { account: SellerAccountRecord };
   return data.account;
 }

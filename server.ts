@@ -1,8 +1,12 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createHash, randomUUID } from 'crypto';
+import { auth, authBaseUrl, authPool } from './lib/auth';
+import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
+import { hashPassword, verifyPassword } from 'better-auth/crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -560,7 +564,7 @@ interface SellerAccountServerRecord {
   fullName: string;
   login: string;
   phone: string;
-  password: string;
+  password?: string;
   bakeryId: string;
   roleLabel?: string;
   isActive: boolean;
@@ -637,16 +641,17 @@ function getSellerSessions(): SellerSessionServerRecord[] {
   return Array.isArray(list) ? list : [];
 }
 
-function resolveSellerFromRequest(req: Request): SellerAccountServerRecord | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  const token = authHeader.slice(7).trim();
-  if (!token) return null;
-  const session = getSellerSessions().find((s) => s.token === token);
-  if (!session) return null;
-  const account = getSellerAccounts().find((a) => a.id === session.accountId);
+function sellerAuthEmail(login: string): string {
+  const digest = createHash('sha256').update(login.trim().toLowerCase()).digest('hex').slice(0, 32);
+  return `seller-${digest}@accounts.sweetmarket.invalid`;
+}
+
+async function resolveSellerFromRequest(req: Request): Promise<SellerAccountServerRecord | null> {
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+  if (!session?.user) return null;
+  const user = session.user as typeof session.user & { role?: string; sellerAccountId?: string | null };
+  if (user.role !== 'seller' || !user.sellerAccountId) return null;
+  const account = getSellerAccounts().find((item) => item.id === user.sellerAccountId);
   if (!account || !account.isActive) return null;
   return account;
 }
@@ -1065,7 +1070,56 @@ function buildStoriesWithInteractions() {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb' }));
+  const betterAuthHandler = toNodeHandler(auth);
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/auth/')) return next();
+    return betterAuthHandler(req, res);
+  });
+
+  app.get('/api/session', async (req: Request, res: Response) => {
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    res.json({ user: session?.user ?? null });
+  });
+
+  app.get('/api/customer/profile', async (req: Request, res: Response) => {
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    if (!session?.user) {
+      res.status(401).json({ error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const result = await authPool.query(
+      'SELECT phone, "districtId", address, "birthDate", "preferredPayment", "notifyOrders", "notifyPromos", "savedAddresses" FROM customer_profile WHERE "userId" = $1 LIMIT 1',
+      [session.user.id],
+    );
+    res.json({ profile: result.rows[0] ?? null, fullName: session.user.name });
+  });
+
+  app.put('/api/customer/profile', async (req: Request, res: Response) => {
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    if (!session?.user) {
+      res.status(401).json({ error: 'AUTH_REQUIRED' });
+      return;
+    }
+    const body = req.body ?? {};
+    const phone = typeof body.phone === 'string' ? body.phone.slice(0, 32) : '';
+    const districtId = typeof body.districtId === 'string' ? body.districtId.slice(0, 80) : 'registon';
+    const address = typeof body.address === 'string' ? body.address.slice(0, 500) : '';
+    const birthDate = typeof body.birthDate === 'string' ? body.birthDate.slice(0, 20) : '';
+    const preferredPayment = body.preferredPayment === 'card_on_delivery' ? 'card_on_delivery' : 'cash_on_delivery';
+    const notifyOrders = body.notifyOrders !== false;
+    const notifyPromos = body.notifyPromos !== false;
+    const savedAddresses = Array.isArray(body.savedAddresses) ? body.savedAddresses.slice(0, 20) : [];
+    await authPool.query(
+      'INSERT INTO customer_profile ("userId", phone, "districtId", address, "birthDate", "preferredPayment", "notifyOrders", "notifyPromos", "savedAddresses", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,now()) ON CONFLICT ("userId") DO UPDATE SET phone=EXCLUDED.phone, "districtId"=EXCLUDED."districtId", address=EXCLUDED.address, "birthDate"=EXCLUDED."birthDate", "preferredPayment"=EXCLUDED."preferredPayment", "notifyOrders"=EXCLUDED."notifyOrders", "notifyPromos"=EXCLUDED."notifyPromos", "savedAddresses"=EXCLUDED."savedAddresses", "updatedAt"=now()',
+      [session.user.id, phone, districtId, address, birthDate, preferredPayment, notifyOrders, notifyPromos, JSON.stringify(savedAddresses)],
+    );
+    if (typeof body.fullName === 'string' && body.fullName.trim()) {
+      await authPool.query('UPDATE "user" SET name = $2, "updatedAt" = now() WHERE id = $1', [session.user.id, body.fullName.trim().slice(0, 100)]);
+    }
+    res.json({ ok: true });
+  });
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
@@ -1629,11 +1683,10 @@ async function startServer() {
     },
   ];
 
-  app.post('/api/seller/login', (req: Request, res: Response) => {
+  app.post('/api/seller/login', async (req: Request, res: Response) => {
     const body = req.body ?? {};
     const rawLogin = typeof body.login === 'string' ? body.login.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
-
     if (!rawLogin || !password) {
       res.status(400).json({ error: 'CREDENTIALS_REQUIRED' });
       return;
@@ -1642,14 +1695,96 @@ async function startServer() {
     const normalizedLogin = rawLogin.toLowerCase();
     const loginDigits = rawLogin.replace(/\D/g, '');
     const accounts = getSellerAccounts();
-    const accountIdx = accounts.findIndex((a) => {
-      const accPhoneDigits = a.phone.replace(/\D/g, '');
-      const matchesLogin =
-        a.login.toLowerCase() === normalizedLogin ||
-        (loginDigits.length >= 9 && accPhoneDigits === loginDigits);
-      return matchesLogin && a.password === password;
+    const accountIdx = accounts.findIndex((account) => {
+      const phoneDigits = account.phone.replace(/\D/g, '');
+      return account.login.toLowerCase() === normalizedLogin || (loginDigits.length >= 9 && phoneDigits === loginDigits);
     });
+    if (accountIdx < 0) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+    const account = accounts[accountIdx];
+    if (!account.isActive) {
+      res.status(403).json({ error: 'ACCOUNT_DISABLED' });
+      return;
+    }
+    if (account.password && account.password !== password) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
 
+    const authEmail = sellerAuthEmail(account.login);
+    const existing = await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [authEmail]);
+    if (!existing.rowCount && !account.password) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+    const authOrigin = authBaseUrl ?? `${req.protocol}://${req.get('host')}`;
+    const endpoint = existing.rowCount ? 'sign-in/email' : 'sign-up/email';
+    const authResponse = await auth.handler(new Request(`${authOrigin}/api/auth/${endpoint}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: authOrigin },
+      body: JSON.stringify(existing.rowCount
+        ? { email: authEmail, password }
+        : { email: authEmail, password, name: account.fullName }),
+    }));
+    if (!authResponse.ok) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+    const cookies = authResponse.headers.getSetCookie?.() ?? [authResponse.headers.get('set-cookie')].filter((value): value is string => Boolean(value));
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
+    const authResult = await authResponse.json() as { user?: { id?: string } };
+    const userId = authResult.user?.id ?? (await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [authEmail])).rows[0]?.id;
+    if (!userId) {
+      res.status(500).json({ error: 'AUTH_SETUP_FAILED' });
+      return;
+    }
+    await authPool.query('UPDATE "user" SET role = $2, "sellerAccountId" = $3, "updatedAt" = now() WHERE id = $1', [userId, 'seller', account.id]);
+
+    const lastLoginAt = new Date().toISOString();
+    const updatedAccount = { ...account, password: undefined, lastLoginAt };
+    accounts[accountIdx] = updatedAccount;
+    writeJsonStore(SELLER_ACCOUNTS_FILE, accounts);
+    const bakery = getResolvedBakeries(true).find((item) => item.id === account.bakeryId);
+    res.json({
+      account: {
+        id: account.id,
+        fullName: account.fullName,
+        login: account.login,
+        phone: account.phone,
+        bakeryId: account.bakeryId,
+        bakeryName: bakery?.name ?? account.bakeryId,
+        roleLabel: account.roleLabel,
+        isActive: account.isActive,
+        createdAt: account.createdAt,
+        lastLoginAt,
+      },
+    });
+  });
+
+  app.post('/api/seller/link', async (req: Request, res: Response) => {
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    if (!session?.user) {
+      res.status(401).json({ error: 'AUTH_REQUIRED' });
+      return;
+    }
+
+    const body = req.body ?? {};
+    const rawLogin = typeof body.login === 'string' ? body.login.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!rawLogin || !password) {
+      res.status(400).json({ error: 'CREDENTIALS_REQUIRED' });
+      return;
+    }
+
+    const normalizedLogin = rawLogin.toLowerCase();
+    const loginDigits = rawLogin.replace(/\D/g, '');
+    const accounts = getSellerAccounts();
+    const accountIdx = accounts.findIndex((account) => {
+      const phoneDigits = account.phone.replace(/\D/g, '');
+      return account.login.toLowerCase() === normalizedLogin || (loginDigits.length >= 9 && phoneDigits === loginDigits);
+    });
     if (accountIdx < 0) {
       res.status(401).json({ error: 'INVALID_CREDENTIALS' });
       return;
@@ -1661,22 +1796,69 @@ async function startServer() {
       return;
     }
 
-    const token = `sm_sel_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-    const sessions = getSellerSessions().filter((s) => s.accountId !== account.id);
-    sessions.unshift({
-      token,
-      accountId: account.id,
-      bakeryId: account.bakeryId,
-      createdAt: new Date().toISOString(),
-    });
-    writeJsonStore(SELLER_SESSIONS_FILE, sessions.slice(0, 100));
+    const currentUser = session.user as typeof session.user & { role?: string; sellerAccountId?: string | null };
+    if (
+      currentUser.role === 'admin' ||
+      (currentUser.role === 'seller' && currentUser.sellerAccountId && currentUser.sellerAccountId !== account.id)
+    ) {
+      res.status(403).json({ error: 'SELLER_ACCOUNT_CONFLICT' });
+      return;
+    }
 
-    accounts[accountIdx] = { ...account, lastLoginAt: new Date().toISOString() };
+    const authEmail = sellerAuthEmail(account.login);
+    const sellerUserResult = await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [authEmail]);
+    const sellerUserId = sellerUserResult.rows[0]?.id as string | undefined;
+    const credentialResult = sellerUserId
+      ? await authPool.query('SELECT password FROM account WHERE "userId" = $1 AND "providerId" = $2 LIMIT 1', [sellerUserId, 'credential'])
+      : { rows: [], rowCount: 0 };
+    const storedHash = credentialResult.rows[0]?.password as string | null | undefined;
+    const passwordVerified = account.password === password || Boolean(storedHash && await verifyPassword({ hash: storedHash, password }));
+    if (!passwordVerified) {
+      res.status(401).json({ error: 'INVALID_CREDENTIALS' });
+      return;
+    }
+
+    let linkedSellerUserId = sellerUserId;
+    if (!linkedSellerUserId) {
+      linkedSellerUserId = randomUUID();
+      const passwordHash = await hashPassword(password);
+      await authPool.query(
+        'INSERT INTO "user" (id, name, email, "emailVerified", role, "sellerAccountId", "createdAt", "updatedAt") VALUES ($1,$2,$3,false,$4,$5,now(),now())',
+        [linkedSellerUserId, account.fullName, authEmail, 'seller', account.id],
+      );
+      await authPool.query(
+        'INSERT INTO account (id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,now(),now())',
+        [randomUUID(), linkedSellerUserId, 'credential', linkedSellerUserId, passwordHash],
+      );
+    } else if (!storedHash) {
+      const passwordHash = await hashPassword(password);
+      if (credentialResult.rowCount) {
+        await authPool.query(
+          'UPDATE account SET password = $2, "updatedAt" = now() WHERE "userId" = $1 AND "providerId" = $3',
+          [linkedSellerUserId, passwordHash, 'credential'],
+        );
+      } else {
+        await authPool.query(
+          'INSERT INTO account (id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,now(),now())',
+          [randomUUID(), linkedSellerUserId, 'credential', linkedSellerUserId, passwordHash],
+        );
+      }
+    }
+
+    await authPool.query(
+      'UPDATE "user" SET role = $2, "sellerAccountId" = $3, "updatedAt" = now() WHERE id = $1',
+      [session.user.id, 'seller', account.id],
+    );
+    await authPool.query(
+      'UPDATE "user" SET role = $2, "sellerAccountId" = $3, "updatedAt" = now() WHERE id = $1',
+      [linkedSellerUserId, 'seller', account.id],
+    );
+
+    const lastLoginAt = new Date().toISOString();
+    accounts[accountIdx] = { ...account, password: undefined, lastLoginAt };
     writeJsonStore(SELLER_ACCOUNTS_FILE, accounts);
-
-    const bakery = getResolvedBakeries(true).find((b) => b.id === account.bakeryId);
+    const bakery = getResolvedBakeries(true).find((item) => item.id === account.bakeryId);
     res.json({
-      token,
       account: {
         id: account.id,
         fullName: account.fullName,
@@ -1687,23 +1869,25 @@ async function startServer() {
         roleLabel: account.roleLabel,
         isActive: account.isActive,
         createdAt: account.createdAt,
-        lastLoginAt: accounts[accountIdx].lastLoginAt,
+        lastLoginAt,
       },
     });
   });
 
-  app.post('/api/seller/logout', (req: Request, res: Response) => {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-    if (token) {
-      const nextSessions = getSellerSessions().filter((s) => s.token !== token);
-      writeJsonStore(SELLER_SESSIONS_FILE, nextSessions);
-    }
+  app.post('/api/seller/logout', async (req: Request, res: Response) => {
+    const authOrigin = authBaseUrl ?? `${req.protocol}://${req.get('host')}`;
+    const response = await auth.handler(new Request(`${authOrigin}/api/auth/sign-out`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: authOrigin, cookie: req.headers.cookie ?? '' },
+      body: JSON.stringify({}),
+    }));
+    const cookies = response.headers.getSetCookie?.() ?? [response.headers.get('set-cookie')].filter((value): value is string => Boolean(value));
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
     res.json({ ok: true });
   });
 
-  app.get('/api/seller/me', (req: Request, res: Response) => {
-    const account = resolveSellerFromRequest(req);
+  app.get('/api/seller/me', async (req: Request, res: Response) => {
+    const account = await resolveSellerFromRequest(req);
     if (!account) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -1725,8 +1909,8 @@ async function startServer() {
     });
   });
 
-  app.get('/api/seller/dashboard', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.get('/api/seller/dashboard', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -1828,8 +2012,8 @@ async function startServer() {
     });
   });
 
-  app.patch('/api/seller/orders/:batchId/status', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.patch('/api/seller/orders/:batchId/status', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -1891,8 +2075,8 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.post('/api/seller/products', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.post('/api/seller/products', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -1969,8 +2153,8 @@ async function startServer() {
     res.status(201).json(enriched);
   });
 
-  app.patch('/api/seller/products/:id', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.patch('/api/seller/products/:id', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2005,8 +2189,8 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/seller/products/:id', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.delete('/api/seller/products/:id', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2028,8 +2212,8 @@ async function startServer() {
     res.json({ deletedId: productId });
   });
 
-  app.post('/api/seller/promotions', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.post('/api/seller/promotions', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2065,8 +2249,8 @@ async function startServer() {
     res.status(201).json(promo);
   });
 
-  app.patch('/api/seller/promotions/:id', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.patch('/api/seller/promotions/:id', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2092,8 +2276,8 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/seller/promotions/:id', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.delete('/api/seller/promotions/:id', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2110,8 +2294,8 @@ async function startServer() {
     res.json({ deletedId: promoId });
   });
 
-  app.patch('/api/seller/bakery/:bakeryId', (req: Request, res: Response) => {
-    const sellerAccount = resolveSellerFromRequest(req);
+  app.patch('/api/seller/bakery/:bakeryId', async (req: Request, res: Response) => {
+    const sellerAccount = await resolveSellerFromRequest(req);
     if (!sellerAccount) {
       res.status(401).json({ error: 'SELLER_AUTH_REQUIRED' });
       return;
@@ -2166,9 +2350,9 @@ async function startServer() {
       ...order,
       status: computeLiveOrderStatus(order),
     }));
-    const sellerAccounts = getSellerAccounts().map((acc) => ({
-      ...acc,
-      bakeryName: bakeryMap.get(acc.bakeryId)?.name ?? acc.bakeryId,
+    const sellerAccounts = getSellerAccounts().map(({ password: _password, ...account }) => ({
+      ...account,
+      bakeryName: bakeryMap.get(account.bakeryId)?.name ?? account.bakeryId,
     }));
     const promotions = readJsonStore<SellerPromotionRecord[]>(PROMOTIONS_FILE, DEFAULT_PROMOTIONS);
     const reviews = readJsonStore<ServerReview[]>(REVIEWS_FILE, DEFAULT_REVIEWS).sort(
@@ -2236,32 +2420,51 @@ async function startServer() {
     });
   });
 
-  app.post('/api/admin/sellers', (req: Request, res: Response) => {
+  app.post('/api/admin/sellers', async (req: Request, res: Response) => {
     const body = req.body ?? {};
     const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
     const login = typeof body.login === 'string' ? body.login.trim() : '';
     const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
-    const password = typeof body.password === 'string' ? body.password.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
     const bakeryId = typeof body.bakeryId === 'string' ? body.bakeryId.trim() : '';
     const roleLabel = typeof body.roleLabel === 'string' ? body.roleLabel.trim() : 'Sotuvchi';
 
-    if (fullName.length < 2 || login.length < 3 || password.length < 4 || !bakeryId) {
+    if (fullName.length < 2 || login.length < 3 || password.length < 8 || !bakeryId) {
       res.status(400).json({ error: 'INVALID_SELLER_ACCOUNT' });
       return;
     }
 
     const accounts = getSellerAccounts();
-    if (accounts.some((a) => a.login.toLowerCase() === login.toLowerCase())) {
+    if (accounts.some((account) => account.login.toLowerCase() === login.toLowerCase())) {
       res.status(409).json({ error: 'LOGIN_ALREADY_EXISTS' });
       return;
     }
 
+    const sellerId = `sel-${Date.now()}`;
+    const email = sellerAuthEmail(login);
+    const existingUser = await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [email]);
+    if (existingUser.rowCount) {
+      res.status(409).json({ error: 'LOGIN_ALREADY_EXISTS' });
+      return;
+    }
+    const authOrigin = authBaseUrl ?? `${req.protocol}://${req.get('host')}`;
+    const authResponse = await auth.handler(new Request(`${authOrigin}/api/auth/sign-up/email`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: authOrigin },
+      body: JSON.stringify({ email, password, name: fullName }),
+    }));
+    const authResult = await authResponse.json() as { user?: { id?: string } };
+    if (!authResponse.ok || !authResult.user?.id) {
+      res.status(400).json({ error: 'SELLER_AUTH_SETUP_FAILED' });
+      return;
+    }
+    await authPool.query('UPDATE "user" SET role = $2, "sellerAccountId" = $3, "updatedAt" = now() WHERE id = $1', [authResult.user.id, 'seller', sellerId]);
+
     const newAccount: SellerAccountServerRecord = {
-      id: `sel-${Date.now()}`,
+      id: sellerId,
       fullName,
       login,
       phone: phone || '+998',
-      password,
       bakeryId,
       roleLabel,
       isActive: body.isActive !== false,
@@ -2272,28 +2475,64 @@ async function startServer() {
     res.status(201).json(newAccount);
   });
 
-  app.patch('/api/admin/sellers/:id', (req: Request, res: Response) => {
+  app.patch('/api/admin/sellers/:id', async (req: Request, res: Response) => {
     const id = req.params.id;
     const body = req.body ?? {};
     const accounts = getSellerAccounts();
-    const idx = accounts.findIndex((a) => a.id === id);
+    const idx = accounts.findIndex((account) => account.id === id);
     if (idx < 0) {
       res.status(404).json({ error: 'SELLER_NOT_FOUND' });
+      return;
+    }
+    const requestedPassword = typeof body.password === 'string' ? body.password : '';
+    if (requestedPassword && requestedPassword.length < 8) {
+      res.status(400).json({ error: 'PASSWORD_TOO_SHORT' });
       return;
     }
     const updated: SellerAccountServerRecord = {
       ...accounts[idx],
       ...(typeof body.fullName === 'string' && body.fullName.trim() ? { fullName: body.fullName.trim() } : {}),
       ...(typeof body.phone === 'string' && body.phone.trim() ? { phone: body.phone.trim() } : {}),
-      ...(typeof body.password === 'string' && body.password.trim().length >= 4 ? { password: body.password.trim() } : {}),
       ...(typeof body.bakeryId === 'string' && body.bakeryId.trim() ? { bakeryId: body.bakeryId.trim() } : {}),
       ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
     };
+    if (requestedPassword) {
+      const email = sellerAuthEmail(updated.login);
+      let authUser = await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [email]);
+      if (!authUser.rowCount) {
+        const authOrigin = authBaseUrl ?? `${req.protocol}://${req.get('host')}`;
+        const response = await auth.handler(new Request(`${authOrigin}/api/auth/sign-up/email`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: authOrigin },
+          body: JSON.stringify({ email, password: requestedPassword, name: updated.fullName }),
+        }));
+        if (!response.ok) {
+          res.status(400).json({ error: 'SELLER_AUTH_SETUP_FAILED' });
+          return;
+        }
+        authUser = await authPool.query('SELECT id FROM "user" WHERE email = $1 LIMIT 1', [email]);
+      } else {
+        const userId = authUser.rows[0].id as string;
+        const passwordHash = await hashPassword(requestedPassword);
+        const credential = await authPool.query(
+          'UPDATE account SET password = $2, "updatedAt" = now() WHERE "userId" = $1 AND "providerId" = $3',
+          [userId, passwordHash, 'credential'],
+        );
+        if (!credential.rowCount) {
+          await authPool.query(
+            'INSERT INTO account (id, "accountId", "providerId", "userId", password, "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,now(),now())',
+            [createHash('sha256').update(`${userId}:${Date.now()}`).digest('hex'), userId, 'credential', userId, passwordHash],
+          );
+        }
+      }
+      if (authUser.rowCount) {
+        await authPool.query('UPDATE "user" SET role = $2, "sellerAccountId" = $3, "updatedAt" = now() WHERE id = $1', [authUser.rows[0].id, 'seller', id]);
+      }
+    }
     accounts[idx] = updated;
     writeJsonStore(SELLER_ACCOUNTS_FILE, accounts);
-
     if (!updated.isActive) {
-      const sessions = getSellerSessions().filter((s) => s.accountId !== id);
+      const sessions = getSellerSessions().filter((session) => session.accountId !== id);
       writeJsonStore(SELLER_SESSIONS_FILE, sessions);
     }
     res.json(updated);

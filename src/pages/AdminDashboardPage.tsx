@@ -703,8 +703,9 @@ export function AdminDashboardPage({
                           />
                           <TextInput
                             label={locale === 'uz' ? 'Kirish paroli' : 'Пароль входа'}
-                            placeholder="Kamida 4 belgi"
+                            placeholder="Kamida 8 belgi"
                             value={sellerPassword}
+                            minLength={8}
                             onChange={(e) => setSellerPassword(e.target.value)}
                             required
                           />

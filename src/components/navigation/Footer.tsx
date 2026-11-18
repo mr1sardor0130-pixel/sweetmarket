@@ -17,6 +17,7 @@ export function Footer({ onNavigate }: FooterProps) {
     artisans: t.nav.artisans,
     favorites: t.nav.favorites,
     profile: t.nav.profile,
+    'sign-in': 'Sign in',
     seller: t.nav.seller,
     admin: 'Admin',
     system: t.nav.system,
@@ -87,6 +88,14 @@ export function Footer({ onNavigate }: FooterProps) {
               >
                 {t.nav.systemLink}
               </button>
+              <span aria-hidden="true">·</span>
+              <a href="/privacy" className="transition-colors hover:text-[var(--sm-text-primary)]">
+                Maxfiylik
+              </a>
+              <span aria-hidden="true">·</span>
+              <a href="/terms" className="transition-colors hover:text-[var(--sm-text-primary)]">
+                Shartlar
+              </a>
             </div>
           </div>
         </div>

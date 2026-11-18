@@ -67,6 +67,7 @@ export interface ProfilePageProps {
   favoritesCount: number;
   followedBakeriesCount: number;
   onOpenSystem: () => void;
+  onSignOut: () => void;
 }
 
 type ProfileTab = 'overview' | 'orders' | 'messages' | 'settings';
@@ -94,6 +95,7 @@ export function ProfilePage({
   favoritesCount,
   followedBakeriesCount,
   onOpenSystem,
+  onSignOut,
 }: ProfilePageProps) {
   const { locale, setLocale, t } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -302,11 +304,16 @@ export function ProfilePage({
 
   return (
     <div className="space-y-8 py-8 sm:py-12">
-      <SectionHeader
-        as="h1"
-        title={t.profile.heading}
-        subtitle={t.profile.subheading}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader
+          as="h1"
+          title={t.profile.heading}
+          subtitle={t.profile.subheading}
+        />
+        <button type="button" onClick={onSignOut} className="rounded-xl border border-[var(--sm-border-subtle)] px-4 py-2.5 text-sm font-medium text-[var(--sm-text-secondary)] hover:bg-[var(--sm-bg-surface)] hover:text-[var(--sm-text-primary)]">
+          {locale === 'uz' ? 'Chiqish' : 'Выйти'}
+        </button>
+      </div>
 
       {/* Profile Identity & 4-Metric Summary Card */}
       <Card padding="lg" className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

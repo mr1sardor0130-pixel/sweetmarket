@@ -31,6 +31,7 @@ import {
   TextInput,
 } from '../design-system/ui';
 import { useTranslation } from '../hooks/useTranslation';
+import { allowAuthNavigation, authClient, clearAuthNavigation } from '../services/auth-client';
 import {
   createSellerProduct,
   createSellerPromotion,
@@ -39,6 +40,7 @@ import {
   fetchCurrentSellerAccount,
   fetchSellerDashboard,
   loginSellerAccount,
+  linkSellerAccount,
   logoutSellerAccount,
   replyToCustomerMessage,
   SellerDashboardResponse,
@@ -94,6 +96,7 @@ export function SellerDashboardPage({
   onBackToProfile,
   onCatalogChanged,
 }: SellerDashboardPageProps) {
+  const { data: authSession } = authClient.useSession();
   const { locale, t } = useTranslation();
 
   const [sellerAccount, setSellerAccount] = useState<SellerAccountRecord | null>(null);
@@ -193,10 +196,9 @@ export function SellerDashboardPage({
     setLoginError(null);
     setIsLoggingIn(true);
     try {
-      const { account } = await loginSellerAccount({
-        login: loginInput.trim(),
-        password: passwordInput,
-      });
+      const { account } = authSession?.user
+        ? await linkSellerAccount({ login: loginInput.trim(), password: passwordInput })
+        : await loginSellerAccount({ login: loginInput.trim(), password: passwordInput });
       setSellerAccount(account);
       setPasswordInput('');
       await loadDashboard();
@@ -216,6 +218,24 @@ export function SellerDashboardPage({
         );
       }
     } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleSellerSocialLogin = async (provider: 'google' | 'telegram') => {
+    setLoginError(null);
+    setIsLoggingIn(true);
+    try {
+      allowAuthNavigation();
+      const result = await authClient.signIn.social({ provider, callbackURL: '/seller' });
+      if (result.error) throw new Error(result.error.message || 'AUTH_FAILED');
+    } catch {
+      clearAuthNavigation();
+      setLoginError(
+        locale === 'uz'
+          ? 'Ijtimoiy tarmoq orqali kirish vaqtincha mavjud emas.'
+          : 'Вход через этот сервис временно недоступен.',
+      );
       setIsLoggingIn(false);
     }
   };
@@ -428,10 +448,18 @@ export function SellerDashboardPage({
             <ShieldCheck className="w-4 h-4 text-[var(--sm-accent-primary)] shrink-0 mt-0.5" />
             <span>
               {locale === 'uz'
-                ? 'Ushbu bo‘lim faqat administrator tomonidan ro‘yxatdan o‘tkazilgan hamkor qandolatxonalar uchun yopiq portaldir.'
-                : 'Этот раздел доступен только зарегистрированным администратором партнёрам.'}
+                ? 'Ushbu bo‘lim faqat administrator tomonidan ro‘yxatdan o‘tkazilgan hamkor qandolatxonalar uchun yopiq portaldir. Ijtimoiy tarmoq orqali kirish administrator bergan hisob ma’lumotlari bilan tasdiqlanadi.'
+                : 'Этот раздел доступен только партнёрам, зарегистрированным администратором. Вход через соцсеть подтверждается данными, выданными администратором.'}
             </span>
           </div>
+
+          {authSession?.user && (
+            <div className="rounded-[10px] border border-[var(--sm-accent-primary)]/25 bg-[var(--sm-accent-primary-soft)] p-3 text-xs leading-5 text-[var(--sm-text-secondary)]">
+              {locale === 'uz'
+                ? 'Ijtimoiy tarmoq hisobi ulandi. Sotuvchi kabinetini ochish uchun administrator bergan login va parolni tasdiqlang.'
+                : 'Социальный аккаунт подключён. Подтвердите данные, выданные администратором, чтобы открыть кабинет продавца.'}
+            </div>
+          )}
 
           <form onSubmit={(e) => void handleSellerLogin(e)} className="space-y-4">
             <TextInput
@@ -460,9 +488,25 @@ export function SellerDashboardPage({
             )}
 
             <Button type="submit" variant="primary" fullWidth isLoading={isLoggingIn}>
-              {locale === 'uz' ? 'Kabinetga kirish' : 'Войти в кабинет'}
+              {authSession?.user
+                ? locale === 'uz' ? 'Sotuvchi hisobini tasdiqlash' : 'Подтвердить аккаунт продавца'
+                : locale === 'uz' ? 'Kabinetga kirish' : 'Войти в кабинет'}
             </Button>
           </form>
+
+          {!authSession?.user && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-[var(--sm-text-muted)]">
+                <span className="h-px flex-1 bg-[var(--sm-border-subtle)]" />
+                {locale === 'uz' ? 'yoki ijtimoiy tarmoq' : 'или соцсеть'}
+                <span className="h-px flex-1 bg-[var(--sm-border-subtle)]" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Button type="button" variant="secondary" fullWidth isLoading={isLoggingIn} onClick={() => void handleSellerSocialLogin('google')}>Google</Button>
+                <Button type="button" variant="secondary" fullWidth isLoading={isLoggingIn} onClick={() => void handleSellerSocialLogin('telegram')}>Telegram</Button>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     );

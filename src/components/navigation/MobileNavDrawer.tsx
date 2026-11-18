@@ -60,6 +60,7 @@ export function MobileNavDrawer({
     artisans: t.nav.artisans,
     favorites: t.nav.favorites,
     profile: t.nav.profile,
+    'sign-in': 'Sign in',
     seller: t.nav.seller,
     admin: 'Admin',
     system: t.nav.system,

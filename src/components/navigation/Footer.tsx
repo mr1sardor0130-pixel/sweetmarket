@@ -88,6 +88,14 @@ export function Footer({ onNavigate }: FooterProps) {
               >
                 {t.nav.systemLink}
               </button>
+              <span aria-hidden="true">·</span>
+              <a href="/privacy" className="transition-colors hover:text-[var(--sm-text-primary)]">
+                Maxfiylik
+              </a>
+              <span aria-hidden="true">·</span>
+              <a href="/terms" className="transition-colors hover:text-[var(--sm-text-primary)]">
+                Shartlar
+              </a>
             </div>
           </div>
         </div>

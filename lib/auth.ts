@@ -71,6 +71,7 @@ export const auth = betterAuth({
       ? [
           ...originFor(process.env.VERCEL_URL),
           ...originFor(process.env.VERCEL_PROJECT_PRODUCTION_URL),
+          ...originFor('https://sweetmarket-peach.vercel.app'),
         ]
       : []),
   ],

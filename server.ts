@@ -1078,6 +1078,14 @@ async function startServer() {
     return betterAuthHandler(req, res);
   });
 
+  const legalPagesPath = path.resolve(__dirname, isProduction ? 'dist' : 'public');
+  app.get(['/privacy', '/privacy/'], (_req: Request, res: Response) => {
+    res.sendFile(path.join(legalPagesPath, 'privacy.html'));
+  });
+  app.get(['/terms', '/terms/'], (_req: Request, res: Response) => {
+    res.sendFile(path.join(legalPagesPath, 'terms.html'));
+  });
+
   app.get('/api/session', async (req: Request, res: Response) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     res.json({ user: session?.user ?? null });

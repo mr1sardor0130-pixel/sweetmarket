@@ -883,8 +883,68 @@ function saveOrderReceipt(receipt: Record<string, unknown>) {
   writeJsonStore(ORDERS_FILE, existing.slice(0, 200));
 }
 
+interface TolovGoPayment {
+  orderId: string | number;
+  payUrl: string;
+}
+
+async function createTolovGoPayment(amount: number, batchId: string): Promise<TolovGoPayment> {
+  const apiKey = process.env.TOLOVGO_API_KEY;
+  if (!apiKey) throw new Error('TOLOVGO_NOT_CONFIGURED');
+  if (!authBaseUrl) throw new Error('PUBLIC_APP_URL_NOT_CONFIGURED');
+
+  const callbackUrl = new URL('/api/payments/tolovgo/webhook', authBaseUrl).toString();
+  const response = await fetch('https://pay.tolovgo.uz/api/create', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': apiKey,
+    },
+    body: JSON.stringify({
+      amount,
+      note: `SweetMarket order ${batchId}`,
+      callback_url: callbackUrl,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  const result = (await response.json().catch(() => null)) as
+    | {
+        ok?: boolean;
+        status?: string;
+        order_id?: string | number;
+        amount?: number;
+        pay_url?: string;
+      }
+    | null;
+  const hasValidOrderId =
+    (typeof result?.order_id === 'number' && Number.isInteger(result.order_id)) ||
+    (typeof result?.order_id === 'string' && result.order_id.trim().length > 0);
+  if (
+    !response.ok ||
+    !result?.ok ||
+    !result.pay_url ||
+    result.status !== 'pending' ||
+    Number(result.amount) !== amount ||
+    !hasValidOrderId
+  ) {
+    throw new Error('TOLOVGO_PAYMENT_CREATION_FAILED');
+  }
+
+  const payUrl = new URL(result.pay_url);
+  if (payUrl.protocol !== 'https:' || payUrl.hostname !== 'pay.tolovgo.uz') {
+    throw new Error('TOLOVGO_INVALID_PAYMENT_URL');
+  }
+
+  return {
+    orderId: result.order_id ?? batchId,
+    payUrl: payUrl.toString(),
+  };
+}
+
 function computeLiveOrderStatus(order: Record<string, unknown>): string {
   if (order.status === 'cancelled') return 'cancelled';
+  if (order.paymentMethod === 'tolovgo' && order.paymentStatus !== 'paid') return 'pending';
   if (order.status === 'delivered') return 'delivered';
   if (typeof order.manualStatus === 'string' && order.manualStatus) {
     return order.manualStatus;
@@ -1419,7 +1479,15 @@ async function startServer() {
     res.json(settings);
   });
 
-  app.post('/api/orders', (req: Request, res: Response) => {
+  const acknowledgeTolovGoWebhook = (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
+    res.status(202).json({ accepted: true, paymentStatusUpdated: false });
+  };
+
+  app.get('/api/payments/tolovgo/webhook', acknowledgeTolovGoWebhook);
+  app.post('/api/payments/tolovgo/webhook', acknowledgeTolovGoWebhook);
+
+  app.post('/api/orders', async (req: Request, res: Response) => {
     const body = req.body ?? {};
     const customerName = typeof body.customerName === 'string' ? body.customerName.trim() : '';
     const customerPhone = typeof body.customerPhone === 'string' ? body.customerPhone.trim() : '';
@@ -1435,6 +1503,11 @@ async function startServer() {
         ? { lat: Number(rawCoords.lat), lng: Number(rawCoords.lng) }
         : undefined;
     const deliverySlot = typeof body.deliverySlot === 'string' ? body.deliverySlot.trim() : '';
+    const paymentMethod = body.paymentMethod === 'tolovgo' ? 'tolovgo' : 'cash_on_delivery';
+    if (body.paymentMethod !== undefined && !['cash_on_delivery', 'tolovgo'].includes(body.paymentMethod)) {
+      res.status(400).json({ error: 'INVALID_PAYMENT_METHOD' });
+      return;
+    }
     const itemsInput = Array.isArray(body.items) ? body.items : [];
     const sellerDeliveryMethods =
       body.sellerDeliveryMethods && typeof body.sellerDeliveryMethods === 'object'
@@ -1586,12 +1659,26 @@ async function startServer() {
     const nowIso = new Date().toISOString();
     const trackingCode = `SM-TRK-${Math.floor(1000 + Math.random() * 9000)}`;
     const handoverPin = String(Math.floor(1000 + Math.random() * 9000));
+    let payment: TolovGoPayment | null = null;
+    if (paymentMethod === 'tolovgo') {
+      try {
+        payment = await createTolovGoPayment(grandTotalUzs, batchId);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '';
+        const notConfigured = reason === 'TOLOVGO_NOT_CONFIGURED' || reason === 'PUBLIC_APP_URL_NOT_CONFIGURED';
+        res.status(notConfigured ? 503 : 502).json({
+          error: notConfigured ? 'PAYMENT_NOT_CONFIGURED' : 'PAYMENT_CREATION_FAILED',
+        });
+        return;
+      }
+    }
+
     const receipt = {
       batchId,
       trackingCode,
       handoverPin,
       createdAt: nowIso,
-      status: 'confirmed',
+      status: paymentMethod === 'tolovgo' ? 'pending' : 'confirmed',
       statusUpdatedAt: nowIso,
       customerName,
       customerPhone: `+${digits}`,
@@ -1600,7 +1687,15 @@ async function startServer() {
       ...(coordinates ? { coordinates } : {}),
       ...(courierNote ? { courierNote } : {}),
       deliverySlot: deliverySlot || 'today_14_17',
-      paymentMethod: 'cash_on_delivery',
+      paymentMethod,
+      ...(payment
+        ? {
+            paymentStatus: 'pending',
+            paymentProviderOrderId: payment.orderId,
+            paymentAmountUzs: grandTotalUzs,
+            paymentUrl: payment.payUrl,
+          }
+        : {}),
       grandTotalUzs,
       sellerOrders,
     };
@@ -2057,6 +2152,14 @@ async function startServer() {
       : [];
     if (!subOrders.some((so) => so.bakeryId === sellerAccount.bakeryId)) {
       res.status(403).json({ error: 'FORBIDDEN_BAKERY' });
+      return;
+    }
+    if (
+      order.paymentMethod === 'tolovgo' &&
+      order.paymentStatus !== 'paid' &&
+      nextStatus !== 'cancelled'
+    ) {
+      res.status(409).json({ error: 'PAYMENT_NOT_CONFIRMED' });
       return;
     }
 

@@ -11,6 +11,7 @@ import {
   ConfirmedOrderReceipt,
   DeliveryMethod,
   GeoCoordinates,
+  OrderPaymentMethod,
 } from '../../types';
 import { formatUzsPrice } from '../catalog/ProductCard';
 import { SamarkandMapPicker } from './SamarkandMapPicker';
@@ -57,6 +58,7 @@ export function CartDrawer({
   const [courierNote, setCourierNote] = useState('');
   const [coordinates, setCoordinates] = useState<GeoCoordinates>({ lat: 39.6542, lng: 66.9597 });
   const [deliverySlot, setDeliverySlot] = useState<string>('today_14_17');
+  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>('cash_on_delivery');
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -175,6 +177,7 @@ export function CartDrawer({
     setIsSubmitting(true);
     try {
       const receipt = await submitCustomerOrder({
+        paymentMethod,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         districtId,
@@ -193,6 +196,11 @@ export function CartDrawer({
         sellerDeliveryMethods: sellerDeliveryPayload,
       });
 
+      if (receipt.paymentUrl) {
+        window.location.assign(receipt.paymentUrl);
+        return;
+      }
+
       onOrderConfirmed(receipt);
       onClearCart();
       setConfirmedReceipt(receipt);
@@ -201,6 +209,7 @@ export function CartDrawer({
       if (msg === 'INVALID_NAME') setFormError(t.cart.nameError);
       else if (msg === 'INVALID_PHONE') setFormError(t.cart.phoneError);
       else if (msg === 'ADDRESS_REQUIRED') setFormError(t.cart.addressRequiredError);
+      else if (msg.startsWith('PAYMENT_')) setFormError(t.cart.onlinePaymentError);
       else setFormError(t.cart.serverErrorFallback);
     } finally {
       setIsSubmitting(false);
@@ -634,14 +643,49 @@ export function CartDrawer({
                   />
                 )}
 
-                <div className="rounded-[10px] border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-subtle)]/70 p-3.5 space-y-1">
-                  <p className="text-xs font-semibold text-[var(--sm-text-primary)]">
+                <fieldset className="rounded-[10px] border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-subtle)]/70 p-3.5 space-y-3">
+                  <legend className="px-1 text-xs font-semibold text-[var(--sm-text-primary)]">
                     {t.cart.paymentMethodTitle}
-                  </p>
-                  <p className="text-xs text-[var(--sm-text-secondary)]">
-                    {t.cart.paymentMethodNote}
-                  </p>
-                </div>
+                  </legend>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] p-3">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="cash_on_delivery"
+                      checked={paymentMethod === 'cash_on_delivery'}
+                      onChange={() => setPaymentMethod('cash_on_delivery')}
+                      className="mt-0.5 accent-[var(--sm-accent-primary)]"
+                    />
+                    <span className="text-xs font-medium text-[var(--sm-text-primary)]">
+                      {t.cart.cashOnDeliveryLabel}
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-[8px] border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] p-3">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      value="tolovgo"
+                      checked={paymentMethod === 'tolovgo'}
+                      onChange={() => setPaymentMethod('tolovgo')}
+                      className="mt-0.5 accent-[var(--sm-accent-primary)]"
+                    />
+                    <span className="space-y-1 text-xs">
+                      <span className="block font-medium text-[var(--sm-text-primary)]">
+                        {t.cart.onlinePaymentLabel}
+                      </span>
+                      {paymentMethod === 'tolovgo' && (
+                        <span className="block text-[var(--sm-text-secondary)]">
+                          {t.cart.onlinePaymentHint}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                  {paymentMethod === 'cash_on_delivery' && (
+                    <p className="text-xs text-[var(--sm-text-secondary)]">
+                      {t.cart.paymentMethodNote}
+                    </p>
+                  )}
+                </fieldset>
 
                 {formError && (
                   <p
@@ -690,7 +734,11 @@ export function CartDrawer({
               fullWidth
               isLoading={isSubmitting}
             >
-              {isSubmitting ? t.cart.submittingOrder : t.cart.placeOrderButton}
+              {isSubmitting
+                ? t.cart.submittingOrder
+                : paymentMethod === 'tolovgo'
+                  ? t.cart.onlinePaymentButton
+                  : t.cart.placeOrderButton}
             </Button>
           </div>
         )}

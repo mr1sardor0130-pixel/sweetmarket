@@ -54,7 +54,10 @@ export interface GeoCoordinates {
   lng: number;
 }
 
+export type OrderPaymentMethod = 'cash_on_delivery' | 'tolovgo';
+
 export interface CheckoutOrderPayload {
+  paymentMethod?: OrderPaymentMethod;
   customerName: string;
   customerPhone: string;
   districtId: string;
@@ -109,7 +112,11 @@ export interface ConfirmedOrderReceipt {
   coordinates?: GeoCoordinates;
   courierNote?: string;
   deliverySlot: string;
-  paymentMethod: 'cash_on_delivery';
+  paymentMethod: OrderPaymentMethod;
+  paymentStatus?: 'pending' | 'paid' | 'failed';
+  paymentProviderOrderId?: string | number;
+  paymentAmountUzs?: number;
+  paymentUrl?: string;
   grandTotalUzs: number;
   sellerOrders: ConfirmedSellerOrder[];
 }

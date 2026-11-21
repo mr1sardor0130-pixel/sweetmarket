@@ -429,6 +429,11 @@ export interface TranslationDictionary {
     }[];
     paymentMethodTitle: string;
     paymentMethodNote: string;
+    cashOnDeliveryLabel: string;
+    onlinePaymentLabel: string;
+    onlinePaymentHint: string;
+    onlinePaymentButton: string;
+    onlinePaymentError: string;
     placeOrderButton: string;
     submittingOrder: string;
     orderConfirmedTitle: string;

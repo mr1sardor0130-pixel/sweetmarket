@@ -49,7 +49,18 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       allowAuthNavigation();
-      const result = await authClient.signIn.social({ provider, callbackURL: accountType === 'seller' ? '/seller' : '/profile' });
+      let callbackURL = accountType === 'seller' ? '/seller' : '/profile';
+      if (provider === 'google') {
+        const intentResponse = await fetch('/api/auth/role-intent', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: accountType }),
+        });
+        if (!intentResponse.ok) throw new Error('ROLE_SELECTION_FAILED');
+        callbackURL = '/api/auth/complete-social';
+      }
+      const result = await authClient.signIn.social({ provider, callbackURL });
       if (result.error) throw new Error(result.error.message || 'AUTH_FAILED');
     } catch {
       clearAuthNavigation();
@@ -66,7 +77,7 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
         </button>
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--sm-accent-primary)]">SweetMarket</p>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--sm-text-primary)]">{uz ? 'Hisobingizga kiring' : 'Войдите в аккаунт'}</h1>
-        <p className="mt-2 text-sm text-[var(--sm-text-secondary)]">{uz ? 'Xaridorlar va sotuvchilar uchun yagona kirish' : 'Единый вход для покупателей и продавцов'}</p>
+        <p className="mt-2 text-sm text-[var(--sm-text-secondary)]">{uz ? 'Google orqali xaridor yoki sotuvchi sifatida davom eting' : 'Войдите через Google как покупатель или продавец'}</p>
 
         <div className="mt-6 grid grid-cols-2 rounded-xl bg-[var(--sm-bg-canvas)] p-1" role="tablist" aria-label={uz ? 'Hisob turi' : 'Тип аккаунта'}>
           {(['customer', 'seller'] as const).map((type) => (
@@ -114,7 +125,7 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
               <button type="button" disabled={busy} onClick={() => void signInSocial('google')} className="rounded-xl border border-[var(--sm-border-subtle)] px-3 py-3 text-sm font-medium text-[var(--sm-text-primary)] hover:bg-[var(--sm-bg-canvas)]">Google</button>
               <button type="button" disabled={busy} onClick={() => void signInSocial('telegram')} className="rounded-xl border border-[var(--sm-border-subtle)] px-3 py-3 text-sm font-medium text-[var(--sm-text-primary)] hover:bg-[var(--sm-bg-canvas)]">Telegram</button>
             </div>
-            <p className="mt-5 text-xs leading-5 text-[var(--sm-text-secondary)]">{uz ? 'Ijtimoiy tarmoq orqali kirgandan so‘ng, sotuvchi hisobini administrator bergan login va parol bilan tasdiqlang.' : 'После входа через соцсеть подтвердите кабинет продавца логином и паролем от администратора.'}</p>
+            <p className="mt-5 text-xs leading-5 text-[var(--sm-text-secondary)]">{uz ? 'Google orqali kirgan yangi sotuvchilar do‘kon ma’lumotlarini keyingi bosqichda kiritadi. Mavjud sotuvchilar login va parol bilan ham kirishi mumkin.' : 'Новые продавцы после входа через Google заполняют данные магазина. Действующие продавцы также могут войти по логину и паролю.'}</p>
           </>
         )}
       </section>

@@ -55,6 +55,27 @@ export interface ReviewsResponse {
   total: number;
 }
 
+export interface SellerOnboardingPayload {
+  name: string;
+  shopType: 'bakery' | 'confectionery' | 'restaurant' | 'cafe' | 'home_kitchen' | 'grocery' | 'other';
+  phone: string;
+  district: string;
+  address: string;
+  description: string;
+}
+
+export async function submitSellerOnboarding(payload: SellerOnboardingPayload): Promise<void> {
+  const response = await fetch('/api/seller/onboarding', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) throw new Error(data.error || 'SELLER_DETAILS_SAVE_FAILED');
+}
+
 export async function fetchServerHealth(): Promise<ServerHealthResponse> {
   const response = await fetch('/api/health', {
     headers: { Accept: 'application/json' },

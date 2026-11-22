@@ -7,6 +7,9 @@ import { createHash, randomUUID } from 'crypto';
 import { auth, authBaseUrl, authPool } from './lib/auth';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { hashPassword, verifyPassword } from 'better-auth/crypto';
+import { completeSocialSignIn } from './api/auth/complete-social';
+import { createGoogleRoleIntent } from './api/auth/role-intent';
+import { saveSellerOnboarding } from './api/seller/onboarding';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1132,6 +1135,9 @@ async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb' }));
+  app.post('/api/auth/role-intent', createGoogleRoleIntent);
+  app.get('/api/auth/complete-social', completeSocialSignIn);
+  app.post('/api/seller/onboarding', saveSellerOnboarding);
   const betterAuthHandler = toNodeHandler(auth);
   app.use((req, res, next) => {
     if (!req.path.startsWith('/api/auth/')) return next();

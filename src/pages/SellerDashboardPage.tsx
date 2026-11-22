@@ -227,7 +227,18 @@ export function SellerDashboardPage({
     setIsLoggingIn(true);
     try {
       allowAuthNavigation();
-      const result = await authClient.signIn.social({ provider, callbackURL: '/seller' });
+      let callbackURL = '/seller';
+      if (provider === 'google') {
+        const intentResponse = await fetch('/api/auth/role-intent', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'seller' }),
+        });
+        if (!intentResponse.ok) throw new Error('ROLE_SELECTION_FAILED');
+        callbackURL = '/api/auth/complete-social';
+      }
+      const result = await authClient.signIn.social({ provider, callbackURL });
       if (result.error) throw new Error(result.error.message || 'AUTH_FAILED');
     } catch {
       clearAuthNavigation();

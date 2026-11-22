@@ -5,6 +5,7 @@ export type AppRouteId =
   | 'favorites'
   | 'profile'
   | 'sign-in'
+  | 'seller-onboarding'
   | 'seller'
   | 'admin'
   | 'system';

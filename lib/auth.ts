@@ -11,7 +11,7 @@ if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.length < 3
 
 export const authPool = new Pool({
   connectionString: databaseUrl,
-  options: '-c search_path=sweetmarket_auth',
+  options: '-c search_path=sweetmarket_auth,public',
   max: 10,
 });
 

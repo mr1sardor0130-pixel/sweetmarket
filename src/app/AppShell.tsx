@@ -22,6 +22,7 @@ import { MarketplaceFoundationPage } from '../pages/MarketplaceFoundationPage';
 import { ProductDetailPage } from '../pages/ProductDetailPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { SellerDashboardPage } from '../pages/SellerDashboardPage';
+import { SellerOnboardingPage } from '../pages/SellerOnboardingPage';
 import { SystemArchitecturePage } from '../pages/SystemArchitecturePage';
 import {
   fetchCompanies,
@@ -46,6 +47,7 @@ function resolveInitialRouteFromLocation(): AppRouteId {
     const rawHash = (window.location.hash || '').toLowerCase().replace(/^#/, '');
     const target = rawHash.startsWith('/') ? rawHash : rawPath;
     if (target.startsWith('/admin')) return 'admin';
+    if (target.startsWith('/seller/onboarding')) return 'seller-onboarding';
     if (target.startsWith('/seller')) return 'seller';
     if (target.startsWith('/catalog')) return 'catalog';
     if (target.startsWith('/artisans')) return 'artisans';
@@ -63,6 +65,8 @@ function getPathForRoute(route: AppRouteId): string {
   switch (route) {
     case 'admin':
       return '/admin';
+    case 'seller-onboarding':
+      return '/seller/onboarding';
     case 'seller':
       return '/seller';
     case 'catalog':
@@ -244,6 +248,7 @@ export function AppShell() {
     favorites: `${t.brand.name} — ${t.nav.favorites}`,
     profile: `${t.brand.name} — ${t.nav.profile}`,
     'sign-in': `${t.brand.name} — Sign in`,
+    'seller-onboarding': `${t.brand.name} — ${locale === 'uz' ? 'Sotuvchi profili' : 'Профиль продавца'}`,
     seller: `${t.brand.name} — ${t.nav.seller}`,
     admin: `${t.brand.name} — Admin Panel`,
     system: `${t.brand.name} — ${t.nav.system}`,
@@ -350,6 +355,15 @@ export function AppShell() {
 
   if (activeRoute === 'sign-in') {
     return <AuthPage onClose={() => handleNavigate('marketplace')} />;
+  }
+
+  if (activeRoute === 'seller-onboarding') {
+    return (
+      <SellerOnboardingPage
+        initialName={authSession?.user?.name ?? ''}
+        onClose={() => handleNavigate('marketplace')}
+      />
+    );
   }
 
   if (activeRoute === 'seller') {

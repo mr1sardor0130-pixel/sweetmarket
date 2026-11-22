@@ -18,6 +18,7 @@ export function Footer({ onNavigate }: FooterProps) {
     favorites: t.nav.favorites,
     profile: t.nav.profile,
     'sign-in': 'Sign in',
+    'seller-onboarding': t.nav.seller,
     seller: t.nav.seller,
     admin: 'Admin',
     system: t.nav.system,

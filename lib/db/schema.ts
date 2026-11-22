@@ -1,4 +1,4 @@
-import { pgSchema, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { doublePrecision, integer, pgSchema, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 const authSchema = pgSchema('sweetmarket_auth');
 
@@ -21,6 +21,21 @@ export const marketplaceShops = pgTable('marketplace_shops', {
   status: text('status').notNull().default('pending'),
   contactPhone: text('contact_phone'),
   district: text('district'),
+  googleMapsUrl: text('google_maps_url'),
+  latitude: doublePrecision('latitude'),
+  longitude: doublePrecision('longitude'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [uniqueIndex('marketplace_shops_owner_user_id_unique').on(table.ownerUserId)]);
+
+export const sellerAccessPayments = pgTable('seller_access_payments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ownerUserId: text('owner_user_id').notNull(),
+  shopId: uuid('shop_id').notNull(),
+  providerOrderId: text('provider_order_id'),
+  paymentUrl: text('payment_url'),
+  amountUzs: integer('amount_uzs').notNull().default(1000),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex('seller_access_payments_provider_order_id_unique').on(table.providerOrderId)]);

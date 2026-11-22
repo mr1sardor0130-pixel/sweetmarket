@@ -62,6 +62,9 @@ export interface SellerOnboardingPayload {
   district: string;
   address: string;
   description: string;
+  googleMapsUrl: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export async function submitSellerOnboarding(payload: SellerOnboardingPayload): Promise<void> {
@@ -74,6 +77,33 @@ export async function submitSellerOnboarding(payload: SellerOnboardingPayload): 
 
   const data = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(data.error || 'SELLER_DETAILS_SAVE_FAILED');
+}
+
+export interface SellerPaymentStartResponse {
+  paymentId: string;
+  paymentUrl: string;
+  amountUzs: number;
+}
+
+export async function createSellerTestPayment(): Promise<SellerPaymentStartResponse> {
+  const response = await fetch('/api/seller/payment', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  });
+  const data = await response.json() as SellerPaymentStartResponse & { error?: string };
+  if (!response.ok) throw new Error(data.error || 'PAYMENT_CREATE_FAILED');
+  return data;
+}
+
+export async function verifySellerTestPayment(paymentId: string): Promise<'paid' | 'pending' | 'failed'> {
+  const response = await fetch(`/api/seller/payment?paymentId=${encodeURIComponent(paymentId)}`, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  });
+  const data = await response.json() as { status?: 'paid' | 'pending' | 'failed'; error?: string };
+  if (!response.ok) throw new Error(data.error || 'PAYMENT_STATUS_UNAVAILABLE');
+  return data.status ?? 'pending';
 }
 
 export async function fetchServerHealth(): Promise<ServerHealthResponse> {

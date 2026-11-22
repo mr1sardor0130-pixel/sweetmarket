@@ -56,15 +56,25 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
     const district = cleanText(body.district, 80);
     const address = cleanText(body.address, 300);
     const description = cleanText(body.description, 600);
+    const googleMapsUrl = cleanText(body.googleMapsUrl, 1000);
+    const latitude = body.latitude === null || body.latitude === '' || body.latitude === undefined ? null : Number(body.latitude);
+    const longitude = body.longitude === null || body.longitude === '' || body.longitude === undefined ? null : Number(body.longitude);
     const phoneDigits = contactPhone.replace(/\D/g, '');
     const phoneCharactersAreValid = /^[+()\d\s-]+$/.test(contactPhone);
 
-    if (name.length < 2 || !shopTypes.has(shopType) || !phoneCharactersAreValid || phoneDigits.length < 7 || phoneDigits.length > 15 || !district || !address) {
+    const hasCoordinates = latitude !== null || longitude !== null;
+    const validCoordinates = !hasCoordinates || (
+      Number.isFinite(latitude) && Number.isFinite(longitude) &&
+      latitude! >= -90 && latitude! <= 90 && longitude! >= -180 && longitude! <= 180
+    );
+    const validMapsUrl = !googleMapsUrl || /^https:\/\/(www\.)?google\.[a-z.]+\/maps\//i.test(googleMapsUrl) || /^https:\/\/maps\.app\.goo\.gl\//i.test(googleMapsUrl);
+
+    if (name.length < 2 || !shopTypes.has(shopType) || !phoneCharactersAreValid || phoneDigits.length < 7 || phoneDigits.length > 15 || !district || !address || !validCoordinates || !validMapsUrl) {
       res.status(400).json({ error: 'INVALID_SELLER_DETAILS' });
       return;
     }
 
-    await db.transaction(async (transaction) => {
+    const shopId = await db.transaction(async (transaction) => {
       const [existingShop] = await transaction
         .select({ id: marketplaceShops.id })
         .from(marketplaceShops)
@@ -78,6 +88,9 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
         district,
         address,
         description,
+        googleMapsUrl: googleMapsUrl || null,
+        latitude,
+        longitude,
         updatedAt: new Date(),
       };
 
@@ -86,10 +99,10 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
           .update(marketplaceShops)
           .set(values)
           .where(and(eq(marketplaceShops.id, existingShop.id), eq(marketplaceShops.ownerUserId, session.user.id)));
-        return;
+        return existingShop.id;
       }
 
-      await transaction.insert(marketplaceShops).values({
+      const [createdShop] = await transaction.insert(marketplaceShops).values({
         ownerUserId: session.user.id,
         name,
         slug: createShopSlug(name),
@@ -98,10 +111,18 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
         district,
         address,
         description,
-      });
+        googleMapsUrl: googleMapsUrl || null,
+        latitude,
+        longitude,
+      }).returning({ id: marketplaceShops.id });
+      return createdShop.id;
     });
 
-    res.status(200).json({ ok: true });
+    await db.update(authUsers)
+      .set({ sellerAccountId: shopId, updatedAt: new Date() })
+      .where(eq(authUsers.id, session.user.id));
+
+    res.status(200).json({ ok: true, shopId });
   } catch {
     res.status(500).json({ error: 'SELLER_DETAILS_SAVE_FAILED' });
   }

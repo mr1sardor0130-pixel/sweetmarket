@@ -10,6 +10,7 @@ import { hashPassword, verifyPassword } from 'better-auth/crypto';
 import { completeSocialSignIn } from './api/auth/complete-social';
 import { createGoogleRoleIntent } from './api/auth/role-intent';
 import { saveSellerOnboarding } from './api/seller/onboarding';
+import sellerPayment from './api/seller/payment';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -652,11 +653,33 @@ function sellerAuthEmail(login: string): string {
 async function resolveSellerFromRequest(req: Request): Promise<SellerAccountServerRecord | null> {
   const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
   if (!session?.user) return null;
-  const user = session.user as typeof session.user & { role?: string; sellerAccountId?: string | null };
-  if (user.role !== 'seller' || !user.sellerAccountId) return null;
+  const userResult = await authPool.query(
+    'SELECT role, "sellerAccountId" FROM "user" WHERE id = $1 LIMIT 1',
+    [session.user.id],
+  );
+  const user = userResult.rows[0] as { role?: string; sellerAccountId?: string | null } | undefined;
+  if (user?.role !== 'seller' || !user.sellerAccountId) return null;
+
   const account = getSellerAccounts().find((item) => item.id === user.sellerAccountId);
-  if (!account || !account.isActive) return null;
-  return account;
+  if (account) return account.isActive ? account : null;
+
+  const shopResult = await authPool.query(
+    'SELECT id::text AS id, name, shop_type, contact_phone, created_at FROM public.marketplace_shops WHERE owner_user_id = $1 AND id::text = $2 LIMIT 1',
+    [session.user.id, user.sellerAccountId],
+  );
+  const shop = shopResult.rows[0] as { id: string; name: string; shop_type: string; contact_phone: string | null; created_at: Date } | undefined;
+  if (!shop) return null;
+
+  return {
+    id: shop.id,
+    fullName: session.user.name || shop.name,
+    login: session.user.email,
+    phone: shop.contact_phone || '',
+    bakeryId: shop.id,
+    roleLabel: shop.shop_type,
+    isActive: true,
+    createdAt: new Date(shop.created_at).toISOString(),
+  };
 }
 
 function getResolvedBakeries(includeSuspended = false): (ServerBakery & { isSuspended?: boolean })[] {
@@ -1138,6 +1161,7 @@ async function startServer() {
   app.post('/api/auth/role-intent', createGoogleRoleIntent);
   app.get('/api/auth/complete-social', completeSocialSignIn);
   app.post('/api/seller/onboarding', saveSellerOnboarding);
+  app.all('/api/seller/payment', sellerPayment);
   const betterAuthHandler = toNodeHandler(auth);
   app.use((req, res, next) => {
     if (!req.path.startsWith('/api/auth/')) return next();
@@ -1204,7 +1228,7 @@ async function startServer() {
     });
   });
 
-  app.get('/api/companies', (_req: Request, res: Response) => {
+  app.get('/api/companies', async (_req: Request, res: Response) => {
     const catalog = getAllCatalogProducts().filter((p) => p.isPublished !== false);
     const companies = getResolvedBakeries().map((b) => ({
       id: b.id,
@@ -1225,6 +1249,35 @@ async function startServer() {
       productCount: catalog.filter((p) => p.bakeryId === b.id).length,
       coverMediaKey: b.coverMediaKey,
     }));
+    const sellerShops = await authPool.query(
+      'SELECT id::text AS id, name, shop_type, district, address, description, google_maps_url, latitude, longitude FROM public.marketplace_shops ORDER BY created_at DESC',
+    );
+    for (const shop of sellerShops.rows as { id: string; name: string; shop_type: string; district: string | null; address: string | null; description: string | null; google_maps_url: string | null; latitude: number | null; longitude: number | null }[]) {
+      const sellerType = shop.shop_type === 'confectionery' ? 'confectioner' : shop.shop_type as ServerBakery['sellerType'];
+      const district = shop.district || 'Samarqand';
+      companies.push({
+        id: shop.id,
+        name: shop.name,
+        sellerType,
+        districtId: 'seller-location',
+        district: { uz: district, ru: district },
+        address: { uz: shop.address || district, ru: shop.address || district },
+        bio: { uz: shop.description || '', ru: shop.description || '' },
+        workingHours: '09:00–21:00',
+        isOpenNow: true,
+        deliveryFeeUzs: 0,
+        freeDeliveryFromUzs: 0,
+        rating: 0,
+        reviewCount: 0,
+        isVerified: false,
+        acceptsCustomOrders: true,
+        productCount: catalog.filter((product) => product.bakeryId === shop.id).length,
+        coverMediaKey: 'hero_pastry',
+        googleMapsUrl: shop.google_maps_url,
+        latitude: shop.latitude,
+        longitude: shop.longitude,
+      } as typeof companies[number]);
+    }
     res.json({ items: companies, total: companies.length });
   });
 
@@ -2002,6 +2055,11 @@ async function startServer() {
       return;
     }
     const bakery = getResolvedBakeries(true).find((b) => b.id === account.bakeryId);
+    const shopResult = bakery ? null : await authPool.query(
+      'SELECT name FROM public.marketplace_shops WHERE id::text = $1 LIMIT 1',
+      [account.bakeryId],
+    );
+    const shopName = shopResult?.rows[0]?.name as string | undefined;
     res.json({
       account: {
         id: account.id,
@@ -2009,7 +2067,7 @@ async function startServer() {
         login: account.login,
         phone: account.phone,
         bakeryId: account.bakeryId,
-        bakeryName: bakery?.name ?? account.bakeryId,
+        bakeryName: bakery?.name ?? shopName ?? account.bakeryId,
         roleLabel: account.roleLabel,
         isActive: account.isActive,
         createdAt: account.createdAt,
@@ -2026,7 +2084,41 @@ async function startServer() {
     }
 
     const bakeries = getResolvedBakeries(true);
-    const bakery = bakeries.find((b) => b.id === sellerAccount.bakeryId) ?? bakeries[0];
+    let bakery = bakeries.find((item) => item.id === sellerAccount.bakeryId);
+    if (!bakery) {
+      const shopResult = await authPool.query(
+        'SELECT id::text AS id, name, shop_type, district, address, description FROM public.marketplace_shops WHERE id::text = $1 LIMIT 1',
+        [sellerAccount.bakeryId],
+      );
+      const shop = shopResult.rows[0] as { id: string; name: string; shop_type: string; district: string | null; address: string | null; description: string | null } | undefined;
+      if (shop) {
+        const sellerType = shop.shop_type === 'confectionery' ? 'confectioner' : shop.shop_type as ServerBakery['sellerType'];
+        const district = shop.district || 'Samarqand';
+        bakery = {
+          id: shop.id,
+          name: shop.name,
+          sellerType,
+          districtId: 'seller-location',
+          district: { uz: district, ru: district },
+          address: { uz: shop.address || district, ru: shop.address || district },
+          bio: { uz: shop.description || '', ru: shop.description || '' },
+          openHour: 9,
+          closeHour: 21,
+          workingHours: '09:00–21:00',
+          deliveryFeeUzs: 0,
+          freeDeliveryFromUzs: 0,
+          rating: 0,
+          reviewCount: 0,
+          isVerified: false,
+          acceptsCustomOrders: true,
+          coverMediaKey: 'hero_pastry',
+        };
+      }
+    }
+    if (!bakery) {
+      res.status(404).json({ error: 'SELLER_SHOP_NOT_FOUND' });
+      return;
+    }
 
     const allOrders = ensureOrdersStore();
     const sellerOrdersList = allOrders

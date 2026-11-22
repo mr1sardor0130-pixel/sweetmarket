@@ -38,17 +38,8 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
       return;
     }
 
-    const [user] = await db
-      .select({ role: authUsers.role })
-      .from(authUsers)
-      .where(eq(authUsers.id, session.user.id))
-      .limit(1);
-
-    if (user?.role !== 'seller') {
-      res.status(403).json({ error: 'SELLER_ROLE_REQUIRED' });
-      return;
-    }
-
+    // Any authenticated customer may apply to become a seller.
+    // The shop remains pending until an administrator approves it.
     const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
     const name = cleanText(body.name, 100);
     const shopType = cleanText(body.shopType, 32);

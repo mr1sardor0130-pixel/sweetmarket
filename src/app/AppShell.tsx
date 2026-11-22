@@ -499,6 +499,7 @@ export function AppShell() {
                     favoritesCount={favoriteIds.length}
                     followedBakeriesCount={followedBakeryIds.length}
                     onOpenSystem={() => handleNavigate('system')}
+                    onOpenSellerCabinet={() => handleNavigate('seller')}
                     onSignOut={() => { void authClient.signOut().then(() => window.location.assign('/')); }}
                   />
                 ) : <AuthPage onClose={() => handleNavigate('marketplace')} />)}

@@ -13,6 +13,7 @@ import {
   Send,
   ShieldCheck,
   Sun,
+  Store,
   Trash2,
   UserRound,
   XCircle,
@@ -67,6 +68,7 @@ export interface ProfilePageProps {
   favoritesCount: number;
   followedBakeriesCount: number;
   onOpenSystem: () => void;
+  onOpenSellerCabinet: () => void;
   onSignOut: () => void;
 }
 
@@ -95,6 +97,7 @@ export function ProfilePage({
   favoritesCount,
   followedBakeriesCount,
   onOpenSystem,
+  onOpenSellerCabinet,
   onSignOut,
 }: ProfilePageProps) {
   const { locale, setLocale, t } = useTranslation();
@@ -310,9 +313,20 @@ export function ProfilePage({
           title={t.profile.heading}
           subtitle={t.profile.subheading}
         />
-        <button type="button" onClick={onSignOut} className="rounded-xl border border-[var(--sm-border-subtle)] px-4 py-2.5 text-sm font-medium text-[var(--sm-text-secondary)] hover:bg-[var(--sm-bg-surface)] hover:text-[var(--sm-text-primary)]">
-          {locale === 'uz' ? 'Chiqish' : 'Выйти'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            leftIcon={<Store className="h-4 w-4" aria-hidden="true" />}
+            onClick={onOpenSellerCabinet}
+          >
+            {locale === 'uz' ? 'Sotuvchi kabineti' : 'Кабинет продавца'}
+          </Button>
+          <button type="button" onClick={onSignOut} className="rounded-xl border border-[var(--sm-border-subtle)] px-4 py-2.5 text-sm font-medium text-[var(--sm-text-secondary)] hover:bg-[var(--sm-bg-surface)] hover:text-[var(--sm-text-primary)]">
+            {locale === 'uz' ? 'Chiqish' : 'Выйти'}
+          </button>
+        </div>
       </div>
 
       {/* Profile Identity & 4-Metric Summary Card */}

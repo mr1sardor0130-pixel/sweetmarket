@@ -2552,7 +2552,8 @@ async function startServer() {
       const user = session?.user as { email?: string; emailVerified?: boolean; role?: string } | undefined;
       if (
         !user ||
-        user.email !== 'mr1sardor0130@gmail.com' ||
+        !process.env.SWEETMARKET_ADMIN_EMAIL ||
+        user.email?.toLowerCase() !== process.env.SWEETMARKET_ADMIN_EMAIL.trim().toLowerCase() ||
         user.emailVerified !== true ||
         user.role !== 'admin'
       ) {

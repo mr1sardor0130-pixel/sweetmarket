@@ -4,6 +4,8 @@ const authSchema = pgSchema('sweetmarket_auth');
 
 export const authUsers = authSchema.table('user', {
   id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
   role: text('role').notNull(),
   sellerAccountId: text('sellerAccountId'),
   updatedAt: timestamp('updatedAt', { withTimezone: true }).notNull(),
@@ -27,6 +29,12 @@ export const marketplaceShops = pgTable('marketplace_shops', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [uniqueIndex('marketplace_shops_owner_user_id_unique').on(table.ownerUserId)]);
+
+export const platformSettings = pgTable('platform_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const sellerAccessPayments = pgTable('seller_access_payments', {
   id: uuid('id').defaultRandom().primaryKey(),

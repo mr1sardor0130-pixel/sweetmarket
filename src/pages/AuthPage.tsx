@@ -18,7 +18,7 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
 
   const finish = () => {
     allowAuthNavigation();
-    window.location.assign(accountType === 'seller' ? '/seller' : '/profile');
+    window.location.assign(accountType === 'seller' ? (mode === 'sign-up' ? '/seller/onboarding' : '/seller') : '/profile');
   };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -26,16 +26,33 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
     setError('');
     setBusy(true);
     try {
-      if (accountType === 'seller') {
+      if (accountType === 'seller' && mode === 'sign-in' && !emailOrLogin.includes('@')) {
         await loginSellerAccount({ login: emailOrLogin.trim(), password });
+        window.location.assign('/seller');
+        return;
+      }
+      const result = mode === 'sign-up'
+        ? await authClient.signUp.email({ name: name.trim(), email: emailOrLogin.trim(), password })
+        : await authClient.signIn.email({ email: emailOrLogin.trim(), password });
+      if (result.error) throw new Error(result.error.message || 'AUTH_FAILED');
+      if (accountType === 'seller' && mode === 'sign-up') {
+        const roleResponse = await fetch('/api/auth/register-seller', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!roleResponse.ok) throw new Error('SELLER_REGISTRATION_FAILED');
         finish();
         return;
       }
-      const result =
-        mode === 'sign-up'
-          ? await authClient.signUp.email({ name: name.trim(), email: emailOrLogin.trim(), password })
-          : await authClient.signIn.email({ email: emailOrLogin.trim(), password });
-      if (result.error) throw new Error(result.error.message || 'AUTH_FAILED');
+      if (accountType === 'seller') {
+        const statusResponse = await fetch('/api/seller/application-status', { credentials: 'same-origin' });
+        const sellerStatus = await statusResponse.json() as { status?: string; error?: string };
+        if (!statusResponse.ok) throw new Error(sellerStatus.error || 'SELLER_STATUS_FAILED');
+        allowAuthNavigation();
+        window.location.assign(sellerStatus.status === 'approved' ? '/seller' : '/seller/onboarding');
+        return;
+      }
       finish();
     } catch {
       setError(uz ? 'Kirish ma’lumotlarini tekshirib, qayta urinib ko‘ring.' : 'Проверьте данные и попробуйте ещё раз.');
@@ -88,20 +105,20 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
         </div>
 
         <form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4">
-          {accountType === 'customer' && mode === 'sign-up' && (
+          {mode === 'sign-up' && (
             <label className="block text-sm font-medium text-[var(--sm-text-primary)]">{uz ? 'Ism' : 'Имя'}
               <input required autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-3.5 py-3 outline-none focus:border-[var(--sm-accent-primary)]" />
             </label>
           )}
-          <label className="block text-sm font-medium text-[var(--sm-text-primary)]">{accountType === 'seller' ? (uz ? 'Login yoki telefon' : 'Логин или телефон') : 'Email'}
-            <input required type={accountType === 'customer' ? 'email' : 'text'} autoComplete={mode === 'sign-up' ? 'email' : 'username'} value={emailOrLogin} onChange={(event) => setEmailOrLogin(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-3.5 py-3 outline-none focus:border-[var(--sm-accent-primary)]" />
+          <label className="block text-sm font-medium text-[var(--sm-text-primary)]">{accountType === 'seller' && mode === 'sign-in' ? (uz ? 'Login yoki telefon' : 'Логин или телефон') : 'Email'}
+            <input required type={accountType === 'seller' && mode === 'sign-in' && !emailOrLogin.includes('@') ? 'text' : 'email'} autoComplete={mode === 'sign-up' ? 'email' : 'username'} value={emailOrLogin} onChange={(event) => setEmailOrLogin(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-3.5 py-3 outline-none focus:border-[var(--sm-accent-primary)]" />
           </label>
           <label className="block text-sm font-medium text-[var(--sm-text-primary)]">{uz ? 'Parol' : 'Пароль'}
-            <input required type="password" autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} minLength={accountType === 'customer' ? 8 : 1} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-3.5 py-3 outline-none focus:border-[var(--sm-accent-primary)]" />
+            <input required type="password" autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} minLength={mode === 'sign-up' || accountType === 'customer' ? 8 : 1} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-3.5 py-3 outline-none focus:border-[var(--sm-accent-primary)]" />
           </label>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <button disabled={busy} type="submit" className="w-full rounded-xl bg-[var(--sm-accent-primary)] px-4 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60">
-            {busy ? (uz ? 'Kutilmoqda…' : 'Подождите…') : accountType === 'seller' || mode === 'sign-in' ? (uz ? 'Kirish' : 'Войти') : (uz ? 'Hisob yaratish' : 'Создать аккаунт')}
+            {busy ? (uz ? 'Kutilmoqda…' : 'Подождите…') : mode === 'sign-in' ? (uz ? 'Kirish' : 'Войти') : (uz ? 'Hisob yaratish' : 'Создать аккаунт')}
           </button>
         </form>
 
@@ -120,12 +137,15 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
         )}
         {accountType === 'seller' && (
           <>
+            <p className="mt-5 text-center text-sm text-[var(--sm-text-secondary)]">
+              {mode === 'sign-in' ? (uz ? 'Sotuvchi hisobingiz yo‘qmi?' : 'Нет аккаунта продавца?') : (uz ? 'Hisobingiz bormi?' : 'Уже зарегистрированы?')}{' '}
+              <button type="button" onClick={() => { setMode(mode === 'sign-in' ? 'sign-up' : 'sign-in'); setError(''); }} className="font-semibold text-[var(--sm-accent-primary)]">{mode === 'sign-in' ? (uz ? 'Ariza yuboring' : 'Подать заявку') : (uz ? 'Kirish' : 'Войти')}</button>
+            </p>
             <div className="my-5 flex items-center gap-3 text-xs text-[var(--sm-text-secondary)]"><span className="h-px flex-1 bg-[var(--sm-border-subtle)]" />{uz ? 'yoki ijtimoiy tarmoq orqali' : 'или через соцсеть'}<span className="h-px flex-1 bg-[var(--sm-border-subtle)]" /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <button type="button" disabled={busy} onClick={() => void signInSocial('google')} className="rounded-xl border border-[var(--sm-border-subtle)] px-3 py-3 text-sm font-medium text-[var(--sm-text-primary)] hover:bg-[var(--sm-bg-canvas)]">Google</button>
-              <button type="button" disabled={busy} onClick={() => void signInSocial('telegram')} className="rounded-xl border border-[var(--sm-border-subtle)] px-3 py-3 text-sm font-medium text-[var(--sm-text-primary)] hover:bg-[var(--sm-bg-canvas)]">Telegram</button>
             </div>
-            <p className="mt-5 text-xs leading-5 text-[var(--sm-text-secondary)]">{uz ? 'Google orqali kirgan yangi sotuvchilar do‘kon ma’lumotlarini keyingi bosqichda kiritadi. Mavjud sotuvchilar login va parol bilan ham kirishi mumkin.' : 'Новые продавцы после входа через Google заполняют данные магазина. Действующие продавцы также могут войти по логину и паролю.'}</p>
+            <p className="mt-5 text-xs leading-5 text-[var(--sm-text-secondary)]">{uz ? 'Google yoki email orqali ro‘yxatdan o‘ting, do‘kon arizasini yuboring. Kabinet faqat administrator tasdiqlaganidan keyin ochiladi.' : 'Зарегистрируйтесь через Google или email и отправьте заявку на магазин. Кабинет откроется после одобрения администратором.'}</p>
           </>
         )}
       </section>

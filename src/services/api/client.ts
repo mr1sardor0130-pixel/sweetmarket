@@ -605,6 +605,7 @@ export interface AdminOverviewMetrics {
 }
 
 export interface AdminOverviewResponse {
+  dataSourceNotice?: string;
   metrics: AdminOverviewMetrics;
   settings: PlatformSettingsRecord;
   bakeries: (BakerySummary & { isSuspended?: boolean })[];
@@ -615,6 +616,56 @@ export interface AdminOverviewResponse {
   reviews: BakeryReview[];
   messages: CustomerInquiryMessage[];
   stories: BakeryStory[];
+}
+
+export interface SellerApplicationRecord {
+  id: string;
+  ownerUserId: string;
+  shopName: string;
+  shopType: string;
+  phone: string | null;
+  district: string | null;
+  address: string | null;
+  description: string;
+  status: string;
+  createdAt: string;
+  applicantName: string;
+  email: string;
+}
+
+export async function fetchSellerApplications(): Promise<SellerApplicationRecord[]> {
+  const response = await fetch('/api/admin/seller-applications', { headers: { Accept: 'application/json' } });
+  const data = await response.json() as { applications?: SellerApplicationRecord[]; error?: string };
+  if (!response.ok) throw new Error(data.error || `Applications failed with status ${response.status}`);
+  return data.applications ?? [];
+}
+
+export async function reviewSellerApplication(id: string, status: 'approved' | 'rejected'): Promise<void> {
+  const response = await fetch('/api/admin/seller-applications', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ id, status }),
+  });
+  const data = await response.json() as { error?: string };
+  if (!response.ok) throw new Error(data.error || `Application review failed with status ${response.status}`);
+}
+
+export async function fetchSellerTestPaymentAmount(): Promise<number> {
+  const response = await fetch('/api/admin/payment-settings', { headers: { Accept: 'application/json' } });
+  const data = await response.json() as { testPaymentAmountUzs?: number; error?: string };
+  if (!response.ok) throw new Error(data.error || `Payment settings failed with status ${response.status}`);
+  return data.testPaymentAmountUzs ?? 1000;
+}
+
+export async function saveSellerTestPaymentAmount(testPaymentAmountUzs: number): Promise<number> {
+  const response = await fetch('/api/admin/payment-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ testPaymentAmountUzs }),
+  });
+  const data = await response.json() as { testPaymentAmountUzs?: number; error?: string };
+  if (!response.ok) throw new Error(data.error || `Payment settings failed with status ${response.status}`);
+  return data.testPaymentAmountUzs ?? testPaymentAmountUzs;
 }
 
 export async function fetchAdminOverview(): Promise<AdminOverviewResponse> {

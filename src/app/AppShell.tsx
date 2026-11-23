@@ -362,7 +362,6 @@ export function AppShell() {
       <SellerOnboardingPage
         initialName={authSession?.user?.name ?? ''}
         onClose={() => handleNavigate('marketplace')}
-        onOpenSellerCabinet={() => handleNavigate('seller')}
       />
     );
   }

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../../lib/auth.js';
 import { db } from '../../lib/db/index.js';
-import { authUsers } from '../../lib/db/schema.js';
+import { authUsers, marketplaceShops } from '../../lib/db/schema.js';
 import { clearGoogleRoleIntent, getGoogleRoleIntent } from '../../lib/auth-role-intent.js';
 
 function redirect(res: Response, path: string) {
@@ -57,7 +57,11 @@ export async function completeSocialSignIn(req: Request, res: Response) {
     }
 
     if (requestedRole === 'seller') {
-      redirect(res, user.role === 'seller' && user.sellerAccountId ? '/seller' : '/seller/onboarding');
+      const [shop] = user.sellerAccountId ? await db.select({ status: marketplaceShops.status })
+        .from(marketplaceShops)
+        .where(eq(marketplaceShops.id, user.sellerAccountId))
+        .limit(1) : [];
+      redirect(res, shop?.status === 'approved' ? '/seller' : '/seller/onboarding');
       return;
     }
 

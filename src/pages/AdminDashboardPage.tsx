@@ -46,6 +46,10 @@ import {
   deleteAdminReview,
   deleteAdminSellerAccount,
   fetchAdminOverview,
+  fetchSellerApplications,
+  fetchSellerTestPaymentAmount,
+  reviewSellerApplication,
+  saveSellerTestPaymentAmount,
   replyToCustomerMessage,
   toggleAdminPromotion,
   updateAdminBakery,
@@ -112,6 +116,8 @@ export function AdminDashboardPage({
   const [sellerBakeryId, setSellerBakeryId] = useState('bakery-zarafshon');
   const [sellerRoleLabel, setSellerRoleLabel] = useState('Direktor');
   const [isCreatingSeller, setIsCreatingSeller] = useState(false);
+  const [sellerApplications, setSellerApplications] = useState<Awaited<ReturnType<typeof fetchSellerApplications>>>([]);
+  const [isReviewingApplication, setIsReviewingApplication] = useState<string | null>(null);
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -155,6 +161,7 @@ export function AdminDashboardPage({
   const [announcementEnabled, setAnnouncementEnabled] = useState(false);
   const [announcementUz, setAnnouncementUz] = useState('');
   const [announcementRu, setAnnouncementRu] = useState('');
+  const [testPaymentAmountUzs, setTestPaymentAmountUzs] = useState('1000');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   const notify = useCallback((msg: string) => {
@@ -166,8 +173,9 @@ export function AdminDashboardPage({
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetchAdminOverview();
+      const [res, testAmount] = await Promise.all([fetchAdminOverview(), fetchSellerTestPaymentAmount()]);
       setData(res);
+      setTestPaymentAmountUzs(String(testAmount));
       setCommissionPercent(String(res.settings.commissionPercent));
       setDefaultDeliveryFeeUzs(String(res.settings.defaultDeliveryFeeUzs));
       setFreeDeliveryThresholdUzs(String(res.settings.freeDeliveryThresholdUzs));
@@ -185,9 +193,35 @@ export function AdminDashboardPage({
     }
   }, [sellerBakeryId]);
 
+  const loadSellerApplications = useCallback(async () => {
+    try {
+      setSellerApplications(await fetchSellerApplications());
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Arizalarni yuklab bo‘lmadi');
+    }
+  }, []);
+
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (activeTab === 'sellers') void loadSellerApplications();
+  }, [activeTab, loadSellerApplications]);
+
+  const handleReviewApplication = async (id: string, status: 'approved' | 'rejected') => {
+    setIsReviewingApplication(id);
+    setErrorMsg(null);
+    try {
+      await reviewSellerApplication(id, status);
+      await loadSellerApplications();
+      notify(locale === 'uz' ? (status === 'approved' ? 'Sotuvchi arizasi tasdiqlandi.' : 'Sotuvchi arizasi rad etildi.') : (status === 'approved' ? 'Заявка продавца одобрена.' : 'Заявка продавца отклонена.'));
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Arizani ko‘rib chiqib bo‘lmadi');
+    } finally {
+      setIsReviewingApplication(null);
+    }
+  };
 
   const handleCreateSeller = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,6 +379,21 @@ export function AdminDashboardPage({
     setReplyDrafts((prev) => ({ ...prev, [msgId]: '' }));
     await loadOverview();
     notify(locale === 'uz' ? 'Javob yuborildi.' : 'Ответ отправлен.');
+  };
+
+  const handleSaveTestPaymentAmount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    setErrorMsg(null);
+    try {
+      const savedAmount = await saveSellerTestPaymentAmount(Number(testPaymentAmountUzs));
+      setTestPaymentAmountUzs(String(savedAmount));
+      notify(locale === 'uz' ? 'Test to‘lovi summasi saqlandi.' : 'Сумма тестового платежа сохранена.');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Test to‘lov summasini saqlab bo‘lmadi');
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -569,6 +618,11 @@ export function AdminDashboardPage({
 
           {/* Main Admin Workspace */}
           <main className="lg:col-span-9 space-y-6">
+            {data?.dataSourceNotice && (
+              <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                {locale === 'uz' ? 'Eslatma: ushbu ishlab turgan muhitda sotuvchi arizalari ko‘rinadi. Buyurtmalar, katalog va boshqa CRM ma’lumotlari mavjud backendda lokal fayllarga yoziladi va production uchun hali ko‘chirilmagan.' : 'Важно: в production сейчас доступны заявки продавцов. Заказы, каталог и остальные CRM-данные пока используют локальное файловое хранилище и ещё не перенесены.'}
+              </div>
+            )}
             {isLoading && !data ? (
               <Card padding="lg">
                 <div className="h-44 animate-pulse rounded-[12px] bg-[var(--sm-bg-subtle)]" />
@@ -662,6 +716,45 @@ export function AdminDashboardPage({
                 {activeTab === 'sellers' && (
                   <div className="space-y-6">
                     <Card padding="lg" className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h2 className="font-display text-xl font-semibold text-[var(--sm-text-primary)]">{locale === 'uz' ? 'Sotuvchi arizalari' : 'Заявки продавцов'}</h2>
+                          <p className="mt-1 text-xs text-[var(--sm-text-muted)]">{locale === 'uz' ? 'Google yoki email orqali ro‘yxatdan o‘tgan hamkorlarni shu yerda ko‘rib chiqasiz.' : 'Проверяйте заявки партнёров, зарегистрированных через Google или email.'}</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => void loadSellerApplications()}>{locale === 'uz' ? 'Arizalarni yangilash' : 'Обновить заявки'}</Button>
+                      </div>
+                      {sellerApplications.length === 0 ? (
+                        <p className="rounded-xl bg-[var(--sm-bg-canvas)] p-4 text-sm text-[var(--sm-text-secondary)]">{locale === 'uz' ? 'Hozircha sotuvchi arizalari yo‘q.' : 'Заявок продавцов пока нет.'}</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {sellerApplications.map((application) => (
+                            <article key={application.id} className="rounded-xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-elevated)] p-4">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="font-semibold text-[var(--sm-text-primary)]">{application.shopName}</h3>
+                                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${application.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : application.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                                      {application.status === 'approved' ? (locale === 'uz' ? 'Tasdiqlangan' : 'Одобрена') : application.status === 'rejected' ? (locale === 'uz' ? 'Rad etilgan' : 'Отклонена') : (locale === 'uz' ? 'Kutilmoqda' : 'Ожидает')}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-[var(--sm-text-secondary)]">{application.applicantName} · {application.email}</p>
+                                  <p className="text-xs text-[var(--sm-text-muted)]">{application.phone || '—'} · {application.district || '—'} · {application.address || '—'}</p>
+                                  {application.description && <p className="pt-1 text-sm text-[var(--sm-text-secondary)]">{application.description}</p>}
+                                  <p className="text-[11px] text-[var(--sm-text-muted)]">{new Date(application.createdAt).toLocaleDateString(locale === 'uz' ? 'uz-UZ' : 'ru-RU')}</p>
+                                </div>
+                                {application.status !== 'approved' && (
+                                  <div className="flex shrink-0 gap-2">
+                                    <Button variant="primary" size="sm" isLoading={isReviewingApplication === application.id} disabled={Boolean(isReviewingApplication)} onClick={() => void handleReviewApplication(application.id, 'approved')}>{locale === 'uz' ? 'Tasdiqlash' : 'Одобрить'}</Button>
+                                    {application.status !== 'rejected' && <Button variant="danger" size="sm" disabled={Boolean(isReviewingApplication)} onClick={() => void handleReviewApplication(application.id, 'rejected')}>{locale === 'uz' ? 'Rad etish' : 'Отклонить'}</Button>}
+                                  </div>
+                                )}
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                    <Card padding="lg" className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <h2 className="font-display text-xl font-semibold text-[var(--sm-text-primary)]">
@@ -669,8 +762,8 @@ export function AdminDashboardPage({
                           </h2>
                           <p className="text-xs text-[var(--sm-text-muted)] mt-0.5">
                             {locale === 'uz'
-                              ? 'Faqat bu yerda yaratilgan foydalanuvchilar /seller sahifasiga kira oladi.'
-                              : 'Только созданные здесь аккаунты могут войти в кабинет /seller.'}
+                              ? 'Arizalar Google va email orqali ro‘yxatdan o‘tgan sotuvchilardan keladi. /seller faqat tasdiqlanganlarga ochiq.'
+                              : 'Заявки поступают от продавцов, зарегистрированных через Google или email. /seller доступен только одобренным.'}
                           </p>
                         </div>
                         <span className="font-mono text-xs text-[var(--sm-accent-primary)]">
@@ -1370,6 +1463,7 @@ export function AdminDashboardPage({
 
                 {/* 8. PLATFORM SETTINGS */}
                 {activeTab === 'settings' && (
+                  <>
                   <Card padding="lg" className="max-w-3xl">
                     <form onSubmit={(e) => void handleSaveSettings(e)} className="space-y-4">
                       <h2 className="font-display text-xl font-semibold text-[var(--sm-text-primary)]">
@@ -1443,6 +1537,24 @@ export function AdminDashboardPage({
                       </Button>
                     </form>
                   </Card>
+                  <Card padding="lg" className="max-w-3xl">
+                    <form onSubmit={(e) => void handleSaveTestPaymentAmount(e)} className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                      <div className="flex-1">
+                        <TextInput
+                          label={locale === 'uz' ? 'Sotuvchi test to‘lovi (UZS, 0 = o‘chiq)' : 'Тестовый платёж продавца (сум, 0 = выкл.)'}
+                          type="number"
+                          min={0}
+                          max={100000000}
+                          step={1}
+                          value={testPaymentAmountUzs}
+                          onChange={(e) => setTestPaymentAmountUzs(e.target.value)}
+                        />
+                        <p className="mt-2 text-xs text-[var(--sm-text-muted)]">{locale === 'uz' ? 'To‘lov miqdori TolovGo test to‘lovi uchun ishlatiladi. 0 qiymati test to‘lovini o‘chiradi.' : 'Сумма применяется к тестовому платежу TolovGo. Значение 0 отключает тестовый платёж.'}</p>
+                      </div>
+                      <Button type="submit" variant="primary" isLoading={isSavingSettings}>{locale === 'uz' ? 'Test to‘lovini saqlash' : 'Сохранить сумму'}</Button>
+                    </form>
+                  </Card>
+                  </>
                 )}
               </>
             ) : null}

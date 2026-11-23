@@ -11,6 +11,10 @@ import { completeSocialSignIn } from './api/auth/complete-social';
 import { createGoogleRoleIntent } from './api/auth/role-intent';
 import { saveSellerOnboarding } from './api/seller/onboarding';
 import sellerPayment from './api/seller/payment';
+import sellerApplicationStatus from './api/seller/application-status';
+import registerSeller from './api/auth/register-seller';
+import sellerApplications from './api/admin/seller-applications';
+import paymentSettings, { getSellerTestAmountUzs } from './api/admin/payment-settings';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -664,7 +668,7 @@ async function resolveSellerFromRequest(req: Request): Promise<SellerAccountServ
   if (account) return account.isActive ? account : null;
 
   const shopResult = await authPool.query(
-    'SELECT id::text AS id, name, shop_type, contact_phone, created_at FROM public.marketplace_shops WHERE owner_user_id = $1 AND id::text = $2 LIMIT 1',
+    "SELECT id::text AS id, name, shop_type, contact_phone, created_at FROM public.marketplace_shops WHERE owner_user_id = $1 AND id::text = $2 AND status = 'approved' LIMIT 1",
     [session.user.id, user.sellerAccountId],
   );
   const shop = shopResult.rows[0] as { id: string; name: string; shop_type: string; contact_phone: string | null; created_at: Date } | undefined;
@@ -1158,9 +1162,26 @@ async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb' }));
+  app.use('/api/admin', async (req, res, next) => {
+    try {
+      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+      if (!session?.user) return res.status(401).json({ error: 'AUTH_REQUIRED' });
+      const result = await authPool.query('SELECT role FROM "user" WHERE id = $1 LIMIT 1', [session.user.id]);
+      if (result.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'ADMIN_REQUIRED' });
+      next();
+    } catch {
+      res.status(500).json({ error: 'ADMIN_AUTH_CHECK_FAILED' });
+    }
+  });
   app.post('/api/auth/role-intent', createGoogleRoleIntent);
+  app.post('/api/auth/register-seller', registerSeller);
   app.get('/api/auth/complete-social', completeSocialSignIn);
+  app.get('/api/admin/seller-applications', sellerApplications);
+  app.patch('/api/admin/seller-applications', sellerApplications);
+  app.get('/api/admin/payment-settings', paymentSettings);
+  app.put('/api/admin/payment-settings', paymentSettings);
   app.post('/api/seller/onboarding', saveSellerOnboarding);
+  app.get('/api/seller/application-status', sellerApplicationStatus);
   app.all('/api/seller/payment', sellerPayment);
   const betterAuthHandler = toNodeHandler(auth);
   app.use((req, res, next) => {
@@ -1250,7 +1271,7 @@ async function startServer() {
       coverMediaKey: b.coverMediaKey,
     }));
     const sellerShops = await authPool.query(
-      'SELECT id::text AS id, name, shop_type, district, address, description, google_maps_url, latitude, longitude FROM public.marketplace_shops ORDER BY created_at DESC',
+      'SELECT id::text AS id, name, shop_type, district, address, description, google_maps_url, latitude, longitude FROM public.marketplace_shops WHERE status = \'approved\' ORDER BY created_at DESC',
     );
     for (const shop of sellerShops.rows as { id: string; name: string; shop_type: string; district: string | null; address: string | null; description: string | null; google_maps_url: string | null; latitude: number | null; longitude: number | null }[]) {
       const sellerType = shop.shop_type === 'confectionery' ? 'confectioner' : shop.shop_type as ServerBakery['sellerType'];

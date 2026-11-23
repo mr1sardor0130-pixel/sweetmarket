@@ -91,6 +91,7 @@ export async function saveSellerOnboarding(req: Request, res: Response) {
         googleMapsUrl: googleMapsUrl || null,
         latitude,
         longitude,
+        status: 'pending',
         updatedAt: new Date(),
       };
 

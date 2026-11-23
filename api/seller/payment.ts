@@ -5,8 +5,7 @@ import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../../lib/auth.js';
 import { db } from '../../lib/db/index.js';
 import { authUsers, marketplaceShops, sellerAccessPayments } from '../../lib/db/schema.js';
-
-const PAYMENT_AMOUNT_UZS = 1000;
+import { getSellerTestAmountUzs } from '../admin/payment-settings.js';
 const paidStatuses = new Set(['paid', 'completed', 'confirmed']);
 const failedStatuses = new Set(['failed', 'cancelled', 'canceled', 'expired', 'rejected']);
 
@@ -16,13 +15,13 @@ function record(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 }
 
-function providerStatus(value: unknown): 'paid' | 'failed' | 'pending' {
+function providerStatus(value: unknown, expectedAmount: number): 'paid' | 'failed' | 'pending' {
   const root = record(value);
   const data = record(root.data);
   const payment = record(data.payment ?? root.payment ?? data);
   const status = String(payment.payment_status ?? payment.status ?? data.payment_status ?? root.payment_status ?? root.status ?? '').toLowerCase();
   const amount = payment.amount ?? root.amount;
-  if (amount !== undefined && Number(amount) !== PAYMENT_AMOUNT_UZS) return 'failed';
+  if (amount !== undefined && Number(amount) !== expectedAmount) return 'failed';
   if (payment.paid === true || root.paid === true || paidStatuses.has(status)) return 'paid';
   if (failedStatuses.has(status)) return 'failed';
   return 'pending';
@@ -46,7 +45,9 @@ async function lookupPaymentStatus(orderId: string): Promise<'paid' | 'failed' |
     cache: 'no-store',
   });
   if (!response.ok) throw new Error('TOLOVGO_STATUS_UNAVAILABLE');
-  return providerStatus(await response.json());
+  const [payment] = await db.select({ amountUzs: sellerAccessPayments.amountUzs })
+    .from(sellerAccessPayments).where(eq(sellerAccessPayments.providerOrderId, orderId)).limit(1);
+  return providerStatus(await response.json(), payment?.amountUzs ?? 0);
 }
 
 async function refreshPaymentStatus(paymentId: string): Promise<'paid' | 'failed' | 'pending'> {
@@ -70,6 +71,8 @@ async function createPayment(req: Request, res: Response) {
 
   const apiKey = process.env.TOLOVGO_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'PAYMENT_NOT_CONFIGURED' });
+  const amountUzs = await getSellerTestAmountUzs();
+  if (amountUzs <= 0) return res.status(409).json({ error: 'TEST_PAYMENT_DISABLED' });
   const paymentId = randomUUID();
   const callbackUrl = new URL('/api/seller/payment', getBaseUrl(req));
   callbackUrl.searchParams.set('callback', '1');
@@ -79,13 +82,13 @@ async function createPayment(req: Request, res: Response) {
     id: paymentId,
     ownerUserId: session.user.id,
     shopId: shop.id,
-    amountUzs: PAYMENT_AMOUNT_UZS,
+    amountUzs,
     status: 'pending',
   });
 
   try {
     const body = new URLSearchParams({
-      amount: String(PAYMENT_AMOUNT_UZS),
+      amount: String(amountUzs),
       note: `SweetMarket seller test ${paymentId}`,
       callback_url: callbackUrl.toString(),
     });
@@ -104,7 +107,7 @@ async function createPayment(req: Request, res: Response) {
     }
     await db.update(sellerAccessPayments).set({ providerOrderId: orderId, paymentUrl: payUrl, updatedAt: new Date() })
       .where(eq(sellerAccessPayments.id, paymentId));
-    return res.status(201).json({ paymentId, paymentUrl: payUrl, amountUzs: PAYMENT_AMOUNT_UZS });
+    return res.status(201).json({ paymentId, paymentUrl: payUrl, amountUzs });
   } catch (error) {
     console.error('[TolovGo] Payment creation failed:', error);
     await db.update(sellerAccessPayments).set({ status: 'failed', updatedAt: new Date() }).where(eq(sellerAccessPayments.id, paymentId));

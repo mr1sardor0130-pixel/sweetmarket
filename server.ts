@@ -2544,7 +2544,29 @@ async function startServer() {
     res.json(updated);
   });
 
-  // --- Admin Panel APIs (Unprotected for now per Admin Panel setup) ---
+  // Protect every legacy admin endpoint with a verified Better Auth session.
+  // The role must be assigned in the database; a matching email alone never grants access.
+  app.use('/api/admin', async (req: Request, res: Response, next) => {
+    try {
+      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+      const user = session?.user as { email?: string; emailVerified?: boolean; role?: string } | undefined;
+      if (
+        !user ||
+        !process.env.SWEETMARKET_ADMIN_EMAIL ||
+        user.email?.toLowerCase() !== process.env.SWEETMARKET_ADMIN_EMAIL.trim().toLowerCase() ||
+        user.emailVerified !== true ||
+        user.role !== 'admin'
+      ) {
+        res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED' });
+        return;
+      }
+      next();
+    } catch {
+      res.status(401).json({ error: 'AUTH_REQUIRED' });
+    }
+  });
+
+  // --- Admin Panel APIs (authenticated administrator only) ---
 
   app.get('/api/admin/overview', (_req: Request, res: Response) => {
     const settings = getPlatformSettings();

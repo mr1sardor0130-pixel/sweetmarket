@@ -24,3 +24,5 @@ export async function createGoogleRoleIntent(req: Request, res: Response) {
 }
 
 export default createGoogleRoleIntent;
+
+export default createGoogleRoleIntent;

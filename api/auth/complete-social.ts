@@ -26,6 +26,21 @@ export async function completeSocialSignIn(req: Request, res: Response) {
       return;
     }
 
+    // Promote only the explicitly configured, Google-verified owner account.
+    const configuredAdminEmail = process.env.SWEETMARKET_ADMIN_EMAIL?.trim().toLowerCase();
+    if (
+      configuredAdminEmail &&
+      session.user.emailVerified &&
+      session.user.email.trim().toLowerCase() === configuredAdminEmail
+    ) {
+      await db.update(authUsers)
+        .set({ role: 'admin', updatedAt: new Date() })
+        .where(eq(authUsers.id, session.user.id));
+      clearGoogleRoleIntent(res);
+      redirect(res, '/admin');
+      return;
+    }
+
     const requestedRole = getGoogleRoleIntent(req);
     clearGoogleRoleIntent(res);
     if (!requestedRole) {

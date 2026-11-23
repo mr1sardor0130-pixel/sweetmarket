@@ -2549,7 +2549,7 @@ async function startServer() {
   app.use('/api/admin', async (req: Request, res: Response, next) => {
     try {
       const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-      const user = session?.user as (typeof session.user & { role?: string }) | undefined;
+      const user = session?.user as { email?: string; emailVerified?: boolean; role?: string } | undefined;
       if (
         !user ||
         user.email !== 'mr1sardor0130@gmail.com' ||

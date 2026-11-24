@@ -1,24 +1,8 @@
 import type { Request, Response } from 'express';
-import { and, desc, eq } from 'drizzle-orm';
-import { fromNodeHeaders } from 'better-auth/node';
-import { auth } from '../../lib/auth.js';
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../../lib/db/index.js';
 import { authUsers, marketplaceShops } from '../../lib/db/schema.js';
-
-async function requireAdmin(req: Request, res: Response): Promise<boolean> {
-  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-  if (!session?.user) {
-    res.status(401).json({ error: 'AUTH_REQUIRED' });
-    return false;
-  }
-  const [user] = await db.select({ role: authUsers.role }).from(authUsers).where(eq(authUsers.id, session.user.id)).limit(1);
-  if (user?.role !== 'admin') {
-    res.status(403).json({ error: 'ADMIN_REQUIRED' });
-    return false;
-  }
-  return true;
-}
-
+import { requireAdmin } from '../../lib/admin-access.js';
 export async function sellerApplications(req: Request, res: Response) {
   try {
     if (!(await requireAdmin(req, res))) return;

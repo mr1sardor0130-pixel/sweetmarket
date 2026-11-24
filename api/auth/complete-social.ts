@@ -5,6 +5,7 @@ import { auth } from '../../lib/auth.js';
 import { db } from '../../lib/db/index.js';
 import { authUsers, marketplaceShops } from '../../lib/db/schema.js';
 import { clearGoogleRoleIntent, getGoogleRoleIntent } from '../../lib/auth-role-intent.js';
+import { promoteConfiguredAdmin } from '../../lib/admin-access.js';
 
 function redirect(res: Response, path: string) {
   res.statusCode = 303;
@@ -41,6 +42,11 @@ export async function completeSocialSignIn(req: Request, res: Response) {
 
     if (!user) {
       redirect(res, '/sign-in');
+      return;
+    }
+
+    if (await promoteConfiguredAdmin(session.user.id, session.user.email, session.user.emailVerified)) {
+      redirect(res, '/admin');
       return;
     }
 

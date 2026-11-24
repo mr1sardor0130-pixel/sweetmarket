@@ -45,6 +45,14 @@ export function AuthPage({ onClose }: { onClose: () => void }) {
         finish();
         return;
       }
+      if (accountType === 'customer' && mode === 'sign-in') {
+        const adminResponse = await fetch('/api/admin/overview', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        if (adminResponse.ok) {
+          allowAuthNavigation();
+          window.location.assign('/admin');
+          return;
+        }
+      }
       if (accountType === 'seller') {
         const statusResponse = await fetch('/api/seller/application-status', { credentials: 'same-origin' });
         const sellerStatus = await statusResponse.json() as { status?: string; error?: string };

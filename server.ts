@@ -15,6 +15,7 @@ import sellerApplicationStatus from './api/seller/application-status';
 import registerSeller from './api/auth/register-seller';
 import sellerApplications from './api/admin/seller-applications';
 import paymentSettings, { getSellerTestAmountUzs } from './api/admin/payment-settings';
+import { requireAdmin } from './lib/admin-access';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1164,10 +1165,7 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
   app.use('/api/admin', async (req, res, next) => {
     try {
-      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-      if (!session?.user) return res.status(401).json({ error: 'AUTH_REQUIRED' });
-      const result = await authPool.query('SELECT role FROM "user" WHERE id = $1 LIMIT 1', [session.user.id]);
-      if (result.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'ADMIN_REQUIRED' });
+      if (!(await requireAdmin(req, res))) return;
       next();
     } catch {
       res.status(500).json({ error: 'ADMIN_AUTH_CHECK_FAILED' });

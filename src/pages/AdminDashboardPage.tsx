@@ -517,7 +517,7 @@ export function AdminDashboardPage({
   return (
     <div className="min-h-screen bg-[var(--sm-bg-canvas)] text-[var(--sm-text-primary)]">
       {/* Top SaaS Admin Bar */}
-      <header className="sticky top-0 z-30 border-b border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] sm-lens">
+      <header className="sticky top-0 z-30 border-b border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] shadow-sm sm-lens">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-6 lg:px-10">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--sm-accent-primary)] text-[var(--sm-text-inverse)] font-display font-bold text-lg">
@@ -617,7 +617,22 @@ export function AdminDashboardPage({
           </aside>
 
           {/* Main Admin Workspace */}
-          <main className="lg:col-span-9 space-y-6">
+          <main className="lg:col-span-9 flex flex-col gap-6">
+            <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-surface)] px-5 py-5 shadow-sm sm:px-7">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--sm-accent-primary)]">SWEETMARKET · ADMIN</p>
+                <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-[var(--sm-text-primary)] sm:text-3xl">
+                  {activeTab === 'overview' ? (locale === 'uz' ? 'Boshqaruv markazi' : 'Центр управления') : (locale === 'uz' ? navItems.find((item) => item.id === activeTab)?.labelUz : navItems.find((item) => item.id === activeTab)?.labelRu)}
+                </h2>
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[var(--sm-text-secondary)]">
+                  {locale === 'uz' ? 'Samarqand marketplace faoliyati, sotuvchi arizalari va platforma sozlamalarini boshqaring.' : 'Управляйте работой маркетплейса Самарканда, заявками продавцов и настройками платформы.'}
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--sm-border-subtle)] bg-[var(--sm-bg-canvas)] px-3 py-2 text-xs font-medium text-[var(--sm-text-secondary)]">
+                <span className="size-2 rounded-full bg-[var(--sm-status-success)]" aria-hidden="true" />
+                {locale === 'uz' ? 'Himoyalangan admin sessiyasi' : 'Защищённая сессия администратора'}
+              </div>
+            </div>
             {data?.dataSourceNotice && (
               <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 {locale === 'uz' ? 'Eslatma: ushbu ishlab turgan muhitda sotuvchi arizalari ko‘rinadi. Buyurtmalar, katalog va boshqa CRM ma’lumotlari mavjud backendda lokal fayllarga yoziladi va production uchun hali ko‘chirilmagan.' : 'Важно: в production сейчас доступны заявки продавцов. Заказы, каталог и остальные CRM-данные пока используют локальное файловое хранилище и ещё не перенесены.'}
@@ -1557,7 +1572,36 @@ export function AdminDashboardPage({
                   </>
                 )}
               </>
-            ) : null}
+            ) : (
+              <Card padding="lg" className="flex min-h-[320px] flex-col items-start justify-center gap-5 border-[var(--sm-border-subtle)]">
+                <div className="flex size-12 items-center justify-center rounded-2xl bg-[var(--sm-status-danger)]/10 text-[var(--sm-status-danger)]">
+                  <ShieldAlert aria-hidden="true" className="size-6" />
+                </div>
+                <div className="max-w-xl">
+                  <h3 className="font-display text-xl font-semibold text-[var(--sm-text-primary)]">
+                    {errorMsg?.includes('404')
+                      ? (locale === 'uz' ? 'Admin API topilmadi' : 'Admin API не найден')
+                      : (locale === 'uz' ? 'Admin ma’lumotlari yuklanmadi' : 'Не удалось загрузить данные')}
+                  </h3>
+                  <p role="status" className="mt-2 text-sm leading-6 text-[var(--sm-text-secondary)]">
+                    {errorMsg?.includes('404')
+                      ? (locale === 'uz' ? 'Bu deployda admin API yo‘q. O‘zgarishlar yangi Vercel deployga chiqqach, sahifa avtomatik ishlaydi.' : 'В этом деплое нет Admin API. Страница заработает после публикации нового деплоя.')
+                      : errorMsg?.includes('403')
+                        ? (locale === 'uz' ? 'Bu akkauntda admin huquqi yo‘q. Administrator emaili bilan kiring.' : 'У этой учётной записи нет прав администратора. Войдите с email администратора.')
+                        : (locale === 'uz' ? 'Server bilan aloqa uzildi. Qayta urinib ko‘ring.' : 'Не удалось связаться с сервером. Попробуйте ещё раз.')}
+                  </p>
+                  {errorMsg && <p className="mt-3 rounded-lg bg-[var(--sm-bg-canvas)] px-3 py-2 font-mono text-xs text-[var(--sm-text-muted)]">{errorMsg}</p>}
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="primary" onClick={() => void loadOverview()} isLoading={isLoading}>
+                    {locale === 'uz' ? 'Qayta yuklash' : 'Повторить'}
+                  </Button>
+                  <Button variant="outline" onClick={onBackToStorefront}>
+                    {locale === 'uz' ? 'Do‘konga qaytish' : 'Вернуться в магазин'}
+                  </Button>
+                </div>
+              </Card>
+            )}
           </main>
         </div>
       </div>

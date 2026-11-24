@@ -1,9 +1,8 @@
 import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
-import { fromNodeHeaders } from 'better-auth/node';
-import { auth } from '../../lib/auth.js';
 import { db } from '../../lib/db/index.js';
-import { authUsers, platformSettings } from '../../lib/db/schema.js';
+import { platformSettings } from '../../lib/db/schema.js';
+import { requireAdmin } from '../../lib/admin-access.js';
 
 export const DEFAULT_SELLER_TEST_AMOUNT_UZS = 1000;
 
@@ -13,20 +12,6 @@ export async function getSellerTestAmountUzs(): Promise<number> {
   if (!setting) return DEFAULT_SELLER_TEST_AMOUNT_UZS;
   const amount = Number(setting.value);
   return Number.isSafeInteger(amount) && amount >= 0 ? amount : DEFAULT_SELLER_TEST_AMOUNT_UZS;
-}
-
-async function requireAdmin(req: Request, res: Response): Promise<boolean> {
-  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-  if (!session?.user) {
-    res.status(401).json({ error: 'AUTH_REQUIRED' });
-    return false;
-  }
-  const [user] = await db.select({ role: authUsers.role }).from(authUsers).where(eq(authUsers.id, session.user.id)).limit(1);
-  if (user?.role !== 'admin') {
-    res.status(403).json({ error: 'ADMIN_REQUIRED' });
-    return false;
-  }
-  return true;
 }
 
 export default async function paymentSettings(req: Request, res: Response) {

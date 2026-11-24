@@ -343,6 +343,10 @@ export function AppShell() {
     return bakeries.find((b) => b.id === activeProduct.bakeryId);
   }, [activeProduct, bakeries]);
 
+  if (activeRoute === 'admin' && !authSession?.user) {
+    return <AuthPage onClose={() => handleNavigate('marketplace')} />;
+  }
+
   if (activeRoute === 'admin') {
     return (
       <AdminDashboardPage
